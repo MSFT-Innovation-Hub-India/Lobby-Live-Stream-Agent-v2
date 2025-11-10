@@ -2,7 +2,7 @@ const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const sharp = require('sharp');
-const { AzureOpenAI } = require('@azure/openai');
+const { OpenAIClient, AzureKeyCredential } = require('@azure/openai');
 
 class FrameAnalysisService {
   constructor() {
@@ -11,6 +11,7 @@ class FrameAnalysisService {
     this.analyzedFrames = [];
     this.rtspUrl = null;
     this.isCapturing = false;
+    this.maxFrames = parseInt(process.env.MAX_ANALYZED_FRAMES) || 10;
 
     // Ensure capture directory exists
     if (!fs.existsSync(this.captureDir)) {
@@ -19,12 +20,12 @@ class FrameAnalysisService {
 
     // Initialize Azure OpenAI client
     this.openaiClient = null;
+    this.deploymentName = process.env.AZURE_OPENAI_DEPLOYMENT_NAME || 'gpt-4o';
     if (process.env.AZURE_OPENAI_ENDPOINT && process.env.AZURE_OPENAI_API_KEY) {
-      this.openaiClient = new AzureOpenAI({
-        endpoint: process.env.AZURE_OPENAI_ENDPOINT,
-        apiKey: process.env.AZURE_OPENAI_API_KEY,
-        apiVersion: process.env.AZURE_OPENAI_API_VERSION || '2024-02-15-preview',
-      });
+      this.openaiClient = new OpenAIClient(
+        process.env.AZURE_OPENAI_ENDPOINT,
+        new AzureKeyCredential(process.env.AZURE_OPENAI_API_KEY)
+      );
     }
   }
 
@@ -111,8 +112,8 @@ class FrameAnalysisService {
 
           this.analyzedFrames.unshift(frameData);
           
-          // Keep only last 20 analyzed frames
-          if (this.analyzedFrames.length > 20) {
+          // Keep only configured number of analyzed frames
+          if (this.analyzedFrames.length > this.maxFrames) {
             const removed = this.analyzedFrames.pop();
             // Optionally delete old frame file
             const oldFilePath = path.join(this.captureDir, removed.filename);
@@ -148,12 +149,10 @@ class FrameAnalysisService {
       const imageBuffer = fs.readFileSync(imagePath);
       const base64Image = imageBuffer.toString('base64');
 
-      const deploymentName = process.env.AZURE_OPENAI_DEPLOYMENT_NAME || 'gpt-4o';
-
       // Call Azure OpenAI with vision capabilities
-      const response = await this.openaiClient.chat.completions.create({
-        model: deploymentName,
-        messages: [
+      const response = await this.openaiClient.getChatCompletions(
+        this.deploymentName,
+        [
           {
             role: 'user',
             content: [
@@ -163,15 +162,15 @@ class FrameAnalysisService {
               },
               {
                 type: 'image_url',
-                image_url: {
+                imageUrl: {
                   url: `data:image/jpeg;base64,${base64Image}`
                 }
               }
             ]
           }
         ],
-        max_tokens: 500
-      });
+        { maxTokens: 500 }
+      );
 
       const analysis = response.choices[0]?.message?.content || 'No analysis available';
       return analysis;

@@ -26,21 +26,28 @@ class StreamService {
     // FFmpeg command to convert RTSP to HLS
     // -rtsp_transport tcp: Use TCP for RTSP (more reliable)
     // -i: Input RTSP URL
-    // -c:v copy: Copy video codec (no re-encoding for performance)
+    // -c:v libx264: Encode to H.264 for browser compatibility
+    // -preset ultrafast: Fast encoding
+    // -tune zerolatency: Minimize latency
     // -c:a aac: Convert audio to AAC
     // -f hls: Output format HLS
     // -hls_time 2: Each segment is 2 seconds
-    // -hls_list_size 3: Keep only 3 segments in playlist
-    // -hls_flags delete_segments: Delete old segments
+    // -hls_list_size 10: Keep 10 segments in playlist
+    // -hls_flags delete_segments+append_list: Delete old segments and append to list
+    // -hls_playlist_type event: Live event playlist
     this.ffmpegProcess = spawn('ffmpeg', [
       '-rtsp_transport', 'tcp',
       '-i', rtspUrl,
-      '-c:v', 'copy',
+      '-c:v', 'libx264',
+      '-preset', 'ultrafast',
+      '-tune', 'zerolatency',
       '-c:a', 'aac',
+      '-b:a', '128k',
       '-f', 'hls',
       '-hls_time', '2',
-      '-hls_list_size', '3',
-      '-hls_flags', 'delete_segments',
+      '-hls_list_size', '10',
+      '-hls_flags', 'delete_segments+append_list',
+      '-hls_allow_cache', '0',
       '-hls_segment_filename', path.join(this.streamDir, 'segment%d.ts'),
       hlsPath
     ]);

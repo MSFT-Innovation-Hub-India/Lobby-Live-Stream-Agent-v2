@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import StreamControls from './components/StreamControls';
 import LiveStream from './components/LiveStream';
 import AnalyzedFrames from './components/AnalyzedFrames';
@@ -10,6 +10,26 @@ function App() {
   const [streamUrl, setStreamUrl] = useState(null);
   const [loading, setLoading] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [nextCaptureIn, setNextCaptureIn] = useState(60);
+
+  // Countdown timer for frame capture
+  useEffect(() => {
+    if (!isStreaming) {
+      setNextCaptureIn(60);
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setNextCaptureIn((prev) => {
+        if (prev <= 1) {
+          return 60; // Reset to 60 seconds
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isStreaming]);
 
   const handleStreamStart = async (rtspUrl) => {
     setLoading(true);
@@ -18,6 +38,7 @@ function App() {
       if (response.success) {
         setIsStreaming(true);
         setStreamUrl(response.stream.streamUrl);
+        setNextCaptureIn(60); // Reset countdown
         setRefreshTrigger(prev => prev + 1);
         console.log('Stream started successfully');
       }
@@ -36,6 +57,7 @@ function App() {
       if (response.success) {
         setIsStreaming(false);
         setStreamUrl(null);
+        setNextCaptureIn(60);
         console.log('Stream stopped successfully');
       }
     } catch (error) {
@@ -59,6 +81,7 @@ function App() {
           onStreamStop={handleStreamStop}
           isStreaming={isStreaming}
           loading={loading}
+          nextCaptureIn={nextCaptureIn}
         />
 
         <LiveStream 

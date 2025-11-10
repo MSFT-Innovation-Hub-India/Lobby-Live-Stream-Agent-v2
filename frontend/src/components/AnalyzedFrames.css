@@ -1,0 +1,147 @@
+.analyzed-frames-container {
+  background: #1a1a1a;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.frames-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.frames-header h2 {
+  margin: 0;
+  color: #fff;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.refresh-btn {
+  background: #4CAF50;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background 0.3s;
+}
+
+.refresh-btn:hover {
+  background: #45a049;
+}
+
+.loading {
+  text-align: center;
+  color: #888;
+  padding: 40px;
+  font-size: 16px;
+}
+
+.error-message {
+  background: #ff444430;
+  border: 1px solid #ff4444;
+  border-radius: 8px;
+  padding: 15px;
+  margin-bottom: 20px;
+  color: #ff6666;
+}
+
+.no-frames {
+  background: #2a2a2a;
+  border-radius: 8px;
+  padding: 40px 20px;
+  text-align: center;
+  color: #888;
+}
+
+.no-frames p {
+  margin: 10px 0;
+  font-size: 16px;
+}
+
+.info-text {
+  font-size: 14px;
+  color: #666;
+  font-style: italic;
+}
+
+.frames-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 20px;
+}
+
+.frame-card {
+  background: #2a2a2a;
+  border-radius: 8px;
+  overflow: hidden;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.frame-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+}
+
+.frame-image-wrapper {
+  position: relative;
+  width: 100%;
+  background: #000;
+}
+
+.frame-image {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.frame-timestamp {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  background: rgba(0, 0, 0, 0.8);
+  color: #fff;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.frame-analysis {
+  padding: 15px;
+}
+
+.frame-analysis h3 {
+  margin: 0 0 10px 0;
+  color: #4CAF50;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.frame-analysis p {
+  margin: 0;
+  color: #ccc;
+  line-height: 1.6;
+  font-size: 14px;
+}
+
+@media (max-width: 768px) {
+  .analyzed-frames-container {
+    padding: 15px;
+  }
+
+  .frames-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .frames-grid {
+    grid-template-columns: 1fr;
+  }
+}

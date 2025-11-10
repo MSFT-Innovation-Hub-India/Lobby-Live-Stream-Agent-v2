@@ -25,7 +25,7 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'Server is running' });
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
   console.log(`Stream endpoint: http://localhost:${PORT}/api/stream`);
   console.log(`Analysis endpoint: http://localhost:${PORT}/api/analysis`);

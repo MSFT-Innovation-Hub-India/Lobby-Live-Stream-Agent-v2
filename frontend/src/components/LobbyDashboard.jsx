@@ -458,13 +458,17 @@ export default function LobbyLiveStreamDashboard() {
       <header className="sticky top-0 z-40 border-b border-white/10 bg-gradient-to-r from-indigo-600/20 via-indigo-400/10 to-transparent px-6 py-4 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-500/20 text-indigo-300">
-              <Camera className="h-4 w-4" />
+            <div className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500/30 to-purple-500/30 text-indigo-300">
+              <Eye className="h-5 w-5" />
+              <div className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></div>
             </div>
             <div>
-              <div className="text-sm font-semibold tracking-wide text-slate-200">Hub Lobby Live Stream Agent</div>
+              <div className="text-base font-bold tracking-wide text-slate-100">
+                <span className="bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">AI Eye</span>
+                {" "}Hub Lobby Live
+              </div>
               <div className="text-xs text-slate-400">
-                Real‑time RTSP monitoring with AI‑powered frame analysis
+                Real‑time intelligent stream analysis & monitoring
               </div>
             </div>
           </div>

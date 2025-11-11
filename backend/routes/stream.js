@@ -18,8 +18,8 @@ router.post('/start', (req, res) => {
     // Start the stream
     const streamResult = streamService.startStream(rtspUrl);
     
-    // Start frame capture and analysis
-    const captureResult = frameAnalysisService.startCapture(rtspUrl);
+    // Start frame capture and analysis (pass streamService for status checks)
+    const captureResult = frameAnalysisService.startCapture(rtspUrl, streamService);
 
     res.json({ 
       success: true,

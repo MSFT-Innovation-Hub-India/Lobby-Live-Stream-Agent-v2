@@ -12,6 +12,10 @@ class FrameAnalysisService {
     this.rtspUrl = null;
     this.isCapturing = false;
     this.maxFrames = parseInt(process.env.MAX_ANALYZED_FRAMES) || 10;
+    this.streamService = null; // Will be set when starting capture
+    this.failedCaptureCount = 0;
+    this.maxFailedCaptures = 5;
+    this.captureIntervalMs = parseInt(process.env.FRAME_CAPTURE_INTERVAL) || 60000; // Default 60 seconds
 
     // Ensure capture directory exists
     if (!fs.existsSync(this.captureDir)) {
@@ -30,24 +34,26 @@ class FrameAnalysisService {
   }
 
   // Start capturing frames at 1-minute intervals
-  startCapture(rtspUrl) {
+  startCapture(rtspUrl, streamService = null) {
     if (this.isCapturing) {
       console.log('Frame capture is already running');
       return { success: true, message: 'Frame capture is already running' };
     }
 
     this.rtspUrl = rtspUrl;
+    this.streamService = streamService;
     this.isCapturing = true;
+    this.failedCaptureCount = 0;
 
     // Capture immediately, then every minute
     this.captureAndAnalyzeFrame();
     
-    // Set interval for 1 minute (60000 ms)
+    // Set interval based on environment variable (default 60000 ms = 1 minute)
     this.captureInterval = setInterval(() => {
       this.captureAndAnalyzeFrame();
-    }, 60000);
+    }, this.captureIntervalMs);
 
-    console.log('Frame capture started - capturing every 60 seconds');
+    console.log(`Frame capture started - capturing every ${this.captureIntervalMs / 1000} seconds`);
     return { success: true, message: 'Frame capture started' };
   }
 
@@ -57,6 +63,7 @@ class FrameAnalysisService {
       clearInterval(this.captureInterval);
       this.captureInterval = null;
       this.isCapturing = false;
+      this.failedCaptureCount = 0;
       console.log('Frame capture stopped');
       return { success: true, message: 'Frame capture stopped' };
     }
@@ -68,6 +75,15 @@ class FrameAnalysisService {
     if (!this.rtspUrl) {
       console.error('No RTSP URL configured');
       return;
+    }
+
+    // Check if stream is running (if streamService is available)
+    if (this.streamService) {
+      const streamStatus = this.streamService.getStatus();
+      if (!streamStatus.isStreaming) {
+        console.log('Skipping frame capture - stream is not running. Waiting for stream to restart...');
+        return;
+      }
     }
 
     const timestamp = Date.now();
@@ -99,6 +115,7 @@ class FrameAnalysisService {
     ffmpeg.on('close', async (code) => {
       if (code === 0 && fs.existsSync(filepath)) {
         console.log(`Frame captured successfully: ${filename}`);
+        this.failedCaptureCount = 0; // Reset on success
         
         // Analyze the frame with Azure OpenAI
         try {
@@ -131,8 +148,18 @@ class FrameAnalysisService {
           console.error('Error analyzing frame:', error.message);
         }
       } else {
-        console.error(`Failed to capture frame. Exit code: ${code}, File exists: ${fs.existsSync(filepath)}`);
-        console.error('FFmpeg output:', errorOutput.substring(Math.max(0, errorOutput.length - 500)));
+        this.failedCaptureCount++;
+        console.error(`Failed to capture frame (${this.failedCaptureCount}/${this.maxFailedCaptures}). Exit code: ${code}`);
+        
+        // If too many failures, stop trying
+        if (this.failedCaptureCount >= this.maxFailedCaptures) {
+          console.error(`Maximum failed captures reached. Stopping frame capture. Please check RTSP connection.`);
+          this.stopCapture();
+        }
+        
+        if (errorOutput.length > 0) {
+          console.error('FFmpeg output:', errorOutput.substring(Math.max(0, errorOutput.length - 500)));
+        }
       }
     });
 
@@ -292,7 +319,9 @@ IMPORTANT: Use exactly ONE blank line between each section header and content, a
       isCapturing: this.isCapturing,
       frameCount: this.analyzedFrames.length,
       rtspUrl: this.rtspUrl,
-      deploymentName: this.deploymentName
+      deploymentName: this.deploymentName,
+      failedCaptureCount: this.failedCaptureCount,
+      maxFailedCaptures: this.maxFailedCaptures
     };
   }
 }

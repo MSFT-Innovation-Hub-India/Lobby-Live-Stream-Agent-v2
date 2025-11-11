@@ -94,25 +94,33 @@ export default function LobbyLiveStreamDashboard() {
     console.log('Initializing HLS player with URL:', streamUrl);
     const video = videoRef.current;
 
+    // Cleanup function
+    const cleanup = () => {
+      if (hlsRef.current) {
+        console.log('Cleaning up HLS player');
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
+    };
+
     if (Hls.isSupported()) {
       console.log('HLS.js is supported, creating player...');
+      
+      // Clean up any existing instance first
+      cleanup();
+      
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: true,
-        debug: true, // Enable debug mode to see more details
+        debug: false, // Disable debug to reduce console noise
         xhrSetup: (xhr, url) => {
-          // Ensure CORS is handled properly
           xhr.withCredentials = false;
-        }
+        },
+        maxBufferLength: 30,
+        maxMaxBufferLength: 600,
+        maxBufferSize: 60 * 1000 * 1000,
+        maxBufferHole: 0.5
       });
-
-      // Add video element event listeners for debugging
-      video.addEventListener('loadstart', () => console.log('Video: loadstart'));
-      video.addEventListener('loadedmetadata', () => console.log('Video: loadedmetadata'));
-      video.addEventListener('loadeddata', () => console.log('Video: loadeddata'));
-      video.addEventListener('canplay', () => console.log('Video: canplay'));
-      video.addEventListener('playing', () => console.log('Video: playing'));
-      video.addEventListener('error', (e) => console.error('Video error:', e));
 
       hls.loadSource(streamUrl);
       hls.attachMedia(video);
@@ -124,34 +132,29 @@ export default function LobbyLiveStreamDashboard() {
           .catch(err => console.error('Auto-play prevented or error:', err));
       });
 
-      hls.on(Hls.Events.MANIFEST_LOADED, (event, data) => {
-        console.log('HLS manifest loaded:', data);
-      });
-
-      hls.on(Hls.Events.LEVEL_LOADED, (event, data) => {
-        console.log('HLS level loaded:', data.level);
-      });
-
-      hls.on(Hls.Events.FRAG_LOADED, (event, data) => {
-        console.log('HLS fragment loaded');
-      });
-
       hls.on(Hls.Events.ERROR, (event, data) => {
-        console.error('HLS Error:', data.type, data.details, data);
+        console.error('HLS Error:', data.type, data.details);
         if (data.fatal) {
-          console.error('HLS Fatal Error:', data);
+          console.error('HLS Fatal Error - attempting recovery');
           switch(data.type) {
             case Hls.ErrorTypes.NETWORK_ERROR:
-              console.error('Network error - trying to recover...');
-              hls.startLoad();
+              console.log('Network error - trying to recover...');
+              setTimeout(() => {
+                if (hlsRef.current) {
+                  hls.startLoad();
+                }
+              }, 1000);
               break;
             case Hls.ErrorTypes.MEDIA_ERROR:
-              console.error('Media error - trying to recover...');
-              hls.recoverMediaError();
+              console.log('Media error - trying to recover...');
+              setTimeout(() => {
+                if (hlsRef.current) {
+                  hls.recoverMediaError();
+                }
+              }, 1000);
               break;
             default:
-              console.error('Unrecoverable error, destroying HLS instance');
-              hls.destroy();
+              console.error('Unrecoverable error');
               break;
           }
         }
@@ -159,19 +162,17 @@ export default function LobbyLiveStreamDashboard() {
 
       hlsRef.current = hls;
 
-      return () => {
-        if (hlsRef.current) {
-          console.log('Cleaning up HLS player');
-          hlsRef.current.destroy();
-          hlsRef.current = null;
-        }
-      };
+      return cleanup;
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
       console.log('Using native HLS support');
       video.src = streamUrl;
       video.addEventListener('loadedmetadata', () => {
         video.play().catch(err => console.log('Auto-play prevented:', err));
       });
+      
+      return () => {
+        video.src = '';
+      };
     } else {
       console.error('HLS is not supported in this browser');
     }
@@ -234,17 +235,45 @@ export default function LobbyLiveStreamDashboard() {
   useEffect(() => {
     fetchAnalyzedFrames();
     fetchStreamStatus();
+    
+    // Poll stream status every 5 seconds to stay in sync with backend
+    const statusInterval = setInterval(() => {
+      fetchStreamStatus();
+    }, 5000);
+    
+    return () => clearInterval(statusInterval);
   }, []);
 
   const fetchStreamStatus = async () => {
     try {
       const response = await fetch('http://localhost:3001/api/stream/status');
       const data = await response.json();
-      if (data.success && data.capture?.deploymentName) {
-        setModelName(data.capture.deploymentName);
+      
+      if (data.success) {
+        // Sync streaming state with backend
+        const backendIsStreaming = data.stream?.isStreaming || false;
+        setIsStreaming(backendIsStreaming);
+        
+        // Only update stream URL if it actually changed to avoid re-initializing HLS player
+        if (backendIsStreaming && data.stream?.streamUrl) {
+          const newStreamUrl = `http://localhost:3001${data.stream.streamUrl}`;
+          setStreamUrl(prevUrl => prevUrl === newStreamUrl ? prevUrl : newStreamUrl);
+        } else if (!backendIsStreaming) {
+          setStreamUrl(prevUrl => prevUrl === null ? prevUrl : null);
+          setSeconds(60);
+        }
+        
+        // Update model name
+        if (data.capture?.deploymentName) {
+          setModelName(data.capture.deploymentName);
+        }
       }
     } catch (error) {
       console.error('Error fetching stream status:', error);
+      // If backend is not reachable, set streaming to false
+      setIsStreaming(false);
+      setStreamUrl(prevUrl => prevUrl === null ? prevUrl : null);
+      setSeconds(60);
     }
   };
 

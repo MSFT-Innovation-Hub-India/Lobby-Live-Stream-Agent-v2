@@ -1,0 +1,1011 @@
+import React, { useEffect, useMemo, useState, useRef } from "react";
+import Hls from 'hls.js';
+import {
+  Camera,
+  CircleDot,
+  Pause,
+  Play,
+  Volume2,
+  VolumeX,
+  Settings,
+  RefreshCw,
+  BarChart3,
+  Clock,
+  Users,
+  Users2,
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
+  Dot,
+  Radio,
+  DoorOpen,
+  UserCheck,
+  Eye,
+  X
+} from "lucide-react";
+import { streamService, analysisService } from '../services/api';
+
+/**
+ * Lobby Live Stream Agent v2 — Professional Dashboard Redesign
+ * Framework: React + TailwindCSS
+ * Icons: lucide-react
+ * Integrated with existing backend API
+ */
+
+// ---------- Helper UI ----------
+const Capsule = ({ children, tone = "slate" }) => (
+  <span
+    className={
+      `inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-all ` +
+      {
+        green:
+          "border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/15",
+        red: "border-rose-500/30 bg-rose-500/10 text-rose-400 hover:bg-rose-500/15",
+        amber:
+          "border-amber-500/30 bg-amber-500/10 text-amber-400 hover:bg-amber-500/15",
+        slate:
+          "border-slate-500/30 bg-slate-500/10 text-slate-300 hover:bg-slate-500/15",
+        indigo:
+          "border-indigo-500/30 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/15",
+      }[tone]
+    }
+  >
+    {children}
+  </span>
+);
+
+const SectionCard = ({ title, right, children }) => (
+  <div className="rounded-2xl border border-white/10 bg-gradient-to-b from-slate-900/40 to-slate-900/20 p-5 shadow-lg shadow-black/20">
+    <div className="mb-4 flex items-center justify-between">
+      <h3 className="text-sm font-semibold tracking-wide text-slate-200">{title}</h3>
+      <div>{right}</div>
+    </div>
+    {children}
+  </div>
+);
+
+// ---------- Main Component ----------
+export default function LobbyLiveStreamDashboard() {
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamUrl, setStreamUrl] = useState(null);
+  const [muted, setMuted] = useState(true);
+  const [paused, setPaused] = useState(false);
+  const [seconds, setSeconds] = useState(60);
+  const [expanded, setExpanded] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [rtspUrl, setRtspUrl] = useState('rtsp://admin:%3FW%21ndows%4010@10.11.70.10:554');
+  const [showRtspInput, setShowRtspInput] = useState(false);
+  const [modelName, setModelName] = useState('GPT-4o');
+  const [selectedFrame, setSelectedFrame] = useState(null);
+  
+  // Analyzed frames state
+  const [analyzedFrames, setAnalyzedFrames] = useState([]);
+  const [currentFrameIndex, setCurrentFrameIndex] = useState(0);
+  const videoRef = useRef(null);
+  const hlsRef = useRef(null);
+
+  // Initialize HLS player
+  useEffect(() => {
+    if (!streamUrl || !videoRef.current) {
+      console.log('HLS init skipped - streamUrl:', !!streamUrl, 'videoRef:', !!videoRef.current);
+      return;
+    }
+
+    console.log('Initializing HLS player with URL:', streamUrl);
+    const video = videoRef.current;
+
+    if (Hls.isSupported()) {
+      console.log('HLS.js is supported, creating player...');
+      const hls = new Hls({
+        enableWorker: true,
+        lowLatencyMode: true,
+        debug: true, // Enable debug mode to see more details
+        xhrSetup: (xhr, url) => {
+          // Ensure CORS is handled properly
+          xhr.withCredentials = false;
+        }
+      });
+
+      // Add video element event listeners for debugging
+      video.addEventListener('loadstart', () => console.log('Video: loadstart'));
+      video.addEventListener('loadedmetadata', () => console.log('Video: loadedmetadata'));
+      video.addEventListener('loadeddata', () => console.log('Video: loadeddata'));
+      video.addEventListener('canplay', () => console.log('Video: canplay'));
+      video.addEventListener('playing', () => console.log('Video: playing'));
+      video.addEventListener('error', (e) => console.error('Video error:', e));
+
+      hls.loadSource(streamUrl);
+      hls.attachMedia(video);
+      
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        console.log('HLS manifest parsed successfully, attempting to play...');
+        video.play()
+          .then(() => console.log('Video playback started successfully'))
+          .catch(err => console.error('Auto-play prevented or error:', err));
+      });
+
+      hls.on(Hls.Events.MANIFEST_LOADED, (event, data) => {
+        console.log('HLS manifest loaded:', data);
+      });
+
+      hls.on(Hls.Events.LEVEL_LOADED, (event, data) => {
+        console.log('HLS level loaded:', data.level);
+      });
+
+      hls.on(Hls.Events.FRAG_LOADED, (event, data) => {
+        console.log('HLS fragment loaded');
+      });
+
+      hls.on(Hls.Events.ERROR, (event, data) => {
+        console.error('HLS Error:', data.type, data.details, data);
+        if (data.fatal) {
+          console.error('HLS Fatal Error:', data);
+          switch(data.type) {
+            case Hls.ErrorTypes.NETWORK_ERROR:
+              console.error('Network error - trying to recover...');
+              hls.startLoad();
+              break;
+            case Hls.ErrorTypes.MEDIA_ERROR:
+              console.error('Media error - trying to recover...');
+              hls.recoverMediaError();
+              break;
+            default:
+              console.error('Unrecoverable error, destroying HLS instance');
+              hls.destroy();
+              break;
+          }
+        }
+      });
+
+      hlsRef.current = hls;
+
+      return () => {
+        if (hlsRef.current) {
+          console.log('Cleaning up HLS player');
+          hlsRef.current.destroy();
+          hlsRef.current = null;
+        }
+      };
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      console.log('Using native HLS support');
+      video.src = streamUrl;
+      video.addEventListener('loadedmetadata', () => {
+        video.play().catch(err => console.log('Auto-play prevented:', err));
+      });
+    } else {
+      console.error('HLS is not supported in this browser');
+    }
+  }, [streamUrl]);
+
+  // Fetch analyzed frames
+  const fetchAnalyzedFrames = async () => {
+    try {
+      console.log('Fetching analyzed frames...');
+      const response = await analysisService.getFrames();
+      console.log('Analyzed frames response:', response);
+      
+      if (response.frames && response.frames.length > 0) {
+        console.log('Setting analyzed frames:', response.frames.length, 'frames');
+        setAnalyzedFrames(response.frames);
+        // Find the index of the newest frame (highest timestamp)
+        const newestIndex = response.frames.reduce((maxIdx, frame, idx, arr) => 
+          frame.timestamp > arr[maxIdx].timestamp ? idx : maxIdx, 0);
+        setCurrentFrameIndex(newestIndex);
+      } else {
+        console.log('No frames in response');
+      }
+    } catch (error) {
+      console.error('Error fetching analyzed frames:', error);
+    }
+  };
+
+  // Countdown timer for frame capture
+  useEffect(() => {
+    if (!isStreaming) {
+      setSeconds(60);
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setSeconds((prev) => {
+        if (prev <= 1) {
+          fetchAnalyzedFrames(); // Refresh frames when countdown resets
+          return 60;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isStreaming]);
+
+  // Poll for new frames every 10 seconds
+  useEffect(() => {
+    if (!isStreaming) return;
+
+    const pollInterval = setInterval(() => {
+      fetchAnalyzedFrames();
+    }, 10000);
+
+    return () => clearInterval(pollInterval);
+  }, [isStreaming]);
+
+  // Initial fetch
+  useEffect(() => {
+    fetchAnalyzedFrames();
+    fetchStreamStatus();
+  }, []);
+
+  const fetchStreamStatus = async () => {
+    try {
+      const response = await fetch('http://localhost:3001/api/stream/status');
+      const data = await response.json();
+      if (data.success && data.capture?.deploymentName) {
+        setModelName(data.capture.deploymentName);
+      }
+    } catch (error) {
+      console.error('Error fetching stream status:', error);
+    }
+  };
+
+  const handleStreamToggle = async () => {
+    if (isStreaming) {
+      // Stop stream
+      try {
+        await streamService.stopStream();
+        setIsStreaming(false);
+        setStreamUrl(null);
+        setSeconds(60);
+        console.log('Stream stopped');
+      } catch (error) {
+        console.error('Error stopping stream:', error);
+      }
+    } else {
+      // Start stream
+      setLoading(true);
+      try {
+        console.log('Starting stream with URL:', rtspUrl);
+        const response = await streamService.startStream(rtspUrl);
+        console.log('Stream response:', response);
+        
+        if (response.success) {
+          // Construct full backend URL for HLS stream using window.location
+          // This ensures we use the correct host that the API calls are using
+          const backendUrl = 'http://localhost:3001';
+          const fullStreamUrl = `${backendUrl}${response.stream.streamUrl}`;
+          
+          console.log('Backend URL:', backendUrl);
+          console.log('Stream path:', response.stream.streamUrl);
+          console.log('Full stream URL:', fullStreamUrl);
+          
+          setIsStreaming(true);
+          setStreamUrl(fullStreamUrl);
+          setSeconds(60);
+          fetchAnalyzedFrames();
+          console.log('Stream started successfully, HLS URL:', fullStreamUrl);
+        } else {
+          console.error('Stream start failed:', response);
+        }
+      } catch (error) {
+        console.error('Error starting stream:', error);
+        alert('Failed to start stream: ' + error.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
+  const currentFrame = analyzedFrames[currentFrameIndex];
+  
+  // Parse analysis data
+  const parseAnalysis = (frame) => {
+    if (!frame || !frame.analysis) return null;
+
+    try {
+      // Try to parse as JSON first
+      if (typeof frame.analysis === 'object') {
+        return frame.analysis;
+      }
+      
+      // Try to extract JSON from markdown code block
+      const jsonMatch = frame.analysis.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+      if (jsonMatch) {
+        return JSON.parse(jsonMatch[1]);
+      }
+      
+      // Return raw text
+      return { raw: frame.analysis };
+    } catch (error) {
+      return { raw: frame.analysis };
+    }
+  };
+
+  const analysisData = currentFrame ? parseAnalysis(currentFrame) : null;
+  
+  // Extract counts
+  const nearDoorsCount = analysisData?.persons_near_doors ?? 0;
+  const atReceptionCount = analysisData?.persons_at_reception ?? 0;
+  const othersCount = analysisData?.persons_in_other_areas ?? 0;
+  const totalCount = analysisData?.total_persons ?? 0;
+
+  // Extract catchy title
+  const extractCatchyTitle = (analysis) => {
+    if (!analysis) return "Awaiting scene analysis...";
+    
+    // Get the scene description from parsed JSON or raw text
+    const parsed = typeof analysis === 'object' ? analysis : { raw: analysis };
+    const sceneText = parsed.scene_description || parsed.raw || '';
+    
+    console.log('Extracting catchy title from:', sceneText.substring(0, 200));
+    
+    // Decode HTML entities if needed
+    const decodedText = sceneText.replace(/\\u003c/g, '<').replace(/\\u003e/g, '>').replace(/\\u0026/g, '&').replace(/\\u0027/g, "'");
+    
+    // Extract caption from HTML span
+    const captionMatch = decodedText.match(/<span class=["']ai-caption["']>(.*?)<\/span>/);
+    const result = captionMatch ? captionMatch[1] : "Scene Analysis in Progress";
+    console.log('Extracted caption:', result);
+    return result;
+  };
+
+  const catchyTitle = currentFrame ? extractCatchyTitle(currentFrame.analysis) : "Awaiting scene analysis...";
+
+  // Extract analysis sections
+  const extractSections = (analysis) => {
+    if (!analysis) return null;
+    
+    // Get the scene description from parsed JSON or raw text
+    const parsed = typeof analysis === 'object' ? analysis : { raw: analysis };
+    const sceneText = parsed.scene_description || parsed.raw || '';
+    
+    console.log('Extracting sections from:', sceneText.substring(0, 200));
+    
+    if (!sceneText) return null;
+    
+    // Decode HTML entities if needed
+    const decodedText = sceneText.replace(/\\u003c/g, '<').replace(/\\u003e/g, '>').replace(/\\u0026/g, '&').replace(/\\u0027/g, "'");
+    
+    const sections = {
+      location: '',
+      people: '',
+      notable: '',
+      overall: ''
+    };
+
+    // Extract sections using emoji markers and headers
+    const locationMatch = decodedText.match(/\*\*🏢 Location & Environment[:\*]*\s*[\r\n]+(.*?)(?=\*\*|$)/s);
+    const peopleMatch = decodedText.match(/\*\*👥 People & Activities[:\*]*\s*[\r\n]+(.*?)(?=\*\*|$)/s);
+    const notableMatch = decodedText.match(/\*\*🔍 Notable Elements[:\*]*\s*[\r\n]+(.*?)(?=\*\*|$)/s);
+    const overallMatch = decodedText.match(/\*\*📊 Overall Status[:\*]*\s*[\r\n]+(.*?)(?=\*\*|$)/s);
+
+    if (locationMatch) sections.location = locationMatch[1].trim();
+    if (peopleMatch) sections.people = peopleMatch[1].trim();
+    if (notableMatch) sections.notable = notableMatch[1].trim();
+    if (overallMatch) sections.overall = overallMatch[1].trim();
+
+    console.log('Extracted sections:', sections);
+    return sections;
+  };
+
+  const sections = analysisData ? extractSections(analysisData) : null;
+
+  const quickStats = useMemo(
+    () => [
+      { label: "FPS", value: "30" },
+      { label: "Resolution", value: "1280×720" },
+      { label: "Model", value: modelName },
+    ],
+    [modelName]
+  );
+
+  // Format frames for display (show all available frames, sorted by newest first)
+  const formattedFrames = [...analyzedFrames]
+    .sort((a, b) => b.timestamp - a.timestamp) // Sort by timestamp descending (newest first)
+    .map(frame => {
+    const analysis = parseAnalysis(frame);
+    const timestamp = new Date(frame.timestamp).toLocaleTimeString();
+    
+    // Construct full image URL using backend base URL
+    const imageUrl = frame.filepath ? `http://localhost:3001${frame.filepath}` : '';
+    
+    return {
+      id: frame.id,
+      timestamp,
+      imageUrl: imageUrl,
+      tags: [
+        `${analysis?.total_persons ?? 0} people`,
+        `Near Doors: ${analysis?.persons_near_doors ?? 0}`,
+        `At Reception: ${analysis?.persons_at_reception ?? 0}`
+      ],
+      summary: extractCatchyTitle(frame.analysis)
+    };
+  });
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100">
+      {/* Header */}
+      <header className="sticky top-0 z-40 border-b border-white/10 bg-gradient-to-r from-indigo-600/20 via-indigo-400/10 to-transparent px-6 py-4 backdrop-blur">
+        <div className="mx-auto flex max-w-7xl items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-500/20 text-indigo-300">
+              <Camera className="h-4 w-4" />
+            </div>
+            <div>
+              <div className="text-sm font-semibold tracking-wide text-slate-200">Hub Lobby Live Stream Agent</div>
+              <div className="text-xs text-slate-400">
+                Real‑time RTSP monitoring with AI‑powered frame analysis
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Capsule tone={isStreaming ? "green" : "red"}>
+              <CircleDot className="h-3 w-3" /> {isStreaming ? "Streaming" : "Stopped"}
+            </Capsule>
+          </div>
+        </div>
+      </header>
+
+      {/* Prominent Countdown Timer Banner */}
+      {isStreaming && (
+        <div className="sticky top-[73px] z-30 border-b border-amber-500/30 bg-gradient-to-r from-amber-600/20 via-amber-500/15 to-transparent backdrop-blur-sm">
+          <div className="mx-auto max-w-7xl px-6 py-3">
+            <div className="flex items-center justify-center gap-4">
+              <Clock className="h-8 w-8 text-amber-400 animate-pulse" />
+              <div className="text-center">
+                <div className="text-xs font-medium text-amber-300/80 uppercase tracking-wider">Next Frame Capture In</div>
+                <div className="text-5xl font-bold text-amber-400 tabular-nums tracking-tight leading-none mt-1">
+                  {seconds}<span className="text-2xl ml-1 text-amber-300/70">seconds</span>
+                </div>
+              </div>
+              <Clock className="h-8 w-8 text-amber-400 animate-pulse" />
+            </div>
+          </div>
+        </div>
+      )}
+
+      <main className="mx-auto grid max-w-7xl gap-6 p-6 lg:grid-cols-3">
+        {/* Left: Live Feed + Controls */}
+        <div className="lg:col-span-2 space-y-6">
+          <SectionCard
+            title={
+              <div className="flex items-center gap-2">
+                <Radio className="h-4 w-4 text-rose-400" />
+                <span>Live Stream Feed</span>
+                {isStreaming && <Capsule tone="red">LIVE</Capsule>}
+              </div>
+            }
+            right={
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPaused((p) => !p)}
+                  disabled={!isStreaming}
+                  className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {paused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
+                  {paused ? "Play" : "Pause"}
+                </button>
+                <button
+                  onClick={() => setMuted((m) => !m)}
+                  disabled={!isStreaming}
+                  className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {muted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+                  {muted ? "Muted" : "Sound On"}
+                </button>
+                <button className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs hover:bg-white/10">
+                  <Settings className="h-3.5 w-3.5" /> Settings
+                </button>
+              </div>
+            }
+          >
+            <div className="relative overflow-hidden rounded-xl border border-white/10 bg-black/40">
+              <div className="aspect-video w-full bg-slate-900">
+                {streamUrl && isStreaming ? (
+                  <video
+                    ref={videoRef}
+                    id="video-player"
+                    className={`h-full w-full object-cover ${paused ? 'opacity-50' : 'opacity-90'}`}
+                    controls={false}
+                    muted={muted}
+                    autoPlay
+                    playsInline
+                  />
+                ) : (
+                  <div className="flex h-full items-center justify-center text-slate-400">
+                    <div className="text-center">
+                      <Camera className="mx-auto h-16 w-16 mb-4 opacity-50" />
+                      <p>Stream not active</p>
+                      <p className="text-xs mt-2">Click "Start Stream" to begin</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/60 to-transparent p-3">
+                <div className="flex items-center gap-2 text-xs text-white/80">
+                  <Capsule tone="indigo">H.264</Capsule>
+                  <Capsule tone="slate">1280×720</Capsule>
+                  <Capsule tone="slate">30 FPS</Capsule>
+                </div>
+                <div className="text-[10px] text-white/70">{new Date().toLocaleString()}</div>
+              </div>
+            </div>
+
+            {/* Catchy AI Title Banner */}
+            {currentFrame && (
+              <div className="mt-4 rounded-xl bg-gradient-to-r from-orange-500/20 via-amber-500/20 to-yellow-500/20 border border-orange-500/30 p-4">
+                <div className="flex items-center gap-2 text-amber-300 mb-2">
+                  <Eye className="h-4 w-4" />
+                  <span className="text-xs font-semibold uppercase tracking-wide">AI Scene Insight</span>
+                </div>
+                <p className="text-lg font-semibold text-white leading-relaxed">
+                  {catchyTitle}
+                </p>
+              </div>
+            )}
+          </SectionCard>
+
+          <SectionCard
+            title={
+              <div className="flex items-center gap-2">
+                <Users2 className="h-4 w-4 text-amber-400" /> Recent Frame Analysis
+              </div>
+            }
+            right={
+              <button
+                onClick={() => setExpanded((e) => !e)}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs hover:bg-white/10"
+              >
+                {expanded ? (
+                  <>
+                    <ChevronUp className="h-3.5 w-3.5" /> Collapse
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown className="h-3.5 w-3.5" /> Expand
+                  </>
+                )}
+              </button>
+            }
+          >
+            <div className={`grid grid-cols-1 gap-4 transition-all md:grid-cols-2 ${expanded ? "opacity-100" : "max-h-0 overflow-hidden opacity-0"}`}>
+              {formattedFrames.length > 0 ? formattedFrames.map((f) => (
+                <div
+                  key={f.id}
+                  onClick={() => {
+                    const fullFrame = analyzedFrames.find(frame => frame.id === f.id);
+                    if (fullFrame) setSelectedFrame(fullFrame);
+                  }}
+                  className="group flex gap-4 rounded-xl border border-white/10 bg-white/5 p-4 hover:bg-white/10 transition-all cursor-pointer"
+                >
+                  <div className="h-24 w-40 shrink-0 overflow-hidden rounded-lg border border-white/10 bg-slate-900">
+                    <img src={f.imageUrl} alt="frame" className="h-full w-full object-cover" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-1 flex items-center gap-2 text-xs text-slate-400">
+                      <Clock className="h-3.5 w-3.5" /> {f.timestamp}
+                    </div>
+                    <p className="text-sm leading-snug text-slate-200 line-clamp-2">{f.summary}</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {f.tags.map((t, idx) => (
+                        <Capsule key={idx} tone="slate">
+                          <Dot className="h-3 w-3" /> {t}
+                        </Capsule>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )) : (
+                <div className="col-span-2 text-center py-8 text-slate-400">
+                  <Camera className="mx-auto h-12 w-12 mb-3 opacity-30" />
+                  <p>No analyzed frames yet</p>
+                  <p className="text-xs mt-1">Frames will appear here after capture</p>
+                </div>
+              )}
+            </div>
+          </SectionCard>
+        </div>
+
+        {/* Right: Status & Insights */}
+        <div className="space-y-6">
+          <SectionCard
+            title={
+              <div className="flex items-center gap-2">
+                <BarChart3 className="h-4 w-4 text-indigo-400" /> Stream Status
+              </div>
+            }
+            right={
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleStreamToggle}
+                  disabled={loading}
+                  className={`inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs transition-all ${
+                    isStreaming
+                      ? "border-rose-500/30 bg-rose-500/10 text-rose-300 hover:bg-rose-500/15"
+                      : "border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15"
+                  } disabled:opacity-50 disabled:cursor-not-allowed`}
+                >
+                  {loading ? "Loading..." : isStreaming ? "Stop Stream" : "Start Stream"}
+                </button>
+                <button 
+                  onClick={fetchAnalyzedFrames}
+                  className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs hover:bg-white/10"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" /> Refresh
+                </button>
+              </div>
+            }
+          >
+            <div className="grid grid-cols-3 gap-3">
+              {quickStats.map((s) => (
+                <div key={s.label} className="rounded-xl border border-white/10 bg-white/5 p-3">
+                  <div className="text-[10px] uppercase tracking-wide text-slate-400">{s.label}</div>
+                  <div className="text-lg font-semibold text-slate-50">{s.value}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Live People Count */}
+            <div className="mt-4 space-y-3">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-300 mb-3 flex items-center gap-2">
+                <Users2 className="h-4 w-4" /> Live People Count
+              </div>
+              
+              <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/10 p-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-slate-300">
+                    <DoorOpen className="h-4 w-4" />
+                    <span className="text-xs">Near Doors</span>
+                  </div>
+                  <span className="text-2xl font-bold text-indigo-300">{nearDoorsCount}</span>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-slate-300">
+                    <UserCheck className="h-4 w-4" />
+                    <span className="text-xs">At Reception</span>
+                  </div>
+                  <span className="text-2xl font-bold text-amber-300">{atReceptionCount}</span>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-purple-500/30 bg-purple-500/10 p-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-slate-300">
+                    <Users className="h-4 w-4" />
+                    <span className="text-xs">Other Areas</span>
+                  </div>
+                  <span className="text-2xl font-bold text-purple-300">{othersCount}</span>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-slate-300">
+                    <Eye className="h-4 w-4" />
+                    <span className="text-xs font-semibold">Total Visible</span>
+                  </div>
+                  <span className="text-3xl font-bold text-emerald-300">{totalCount}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-slate-300">
+              <div className="mb-1 font-medium text-slate-200">Health</div>
+              <ul className="list-disc space-y-1 pl-5">
+                <li>RTSP connection: {isStreaming ? 'Active' : 'Inactive'}</li>
+                <li>Frame capture interval: 60 seconds</li>
+                <li>AI analysis: {currentFrame ? 'Running' : 'Standby'}</li>
+              </ul>
+            </div>
+
+            {/* RTSP URL Input */}
+            <div className="mt-4">
+              <button
+                onClick={() => setShowRtspInput(!showRtspInput)}
+                className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs hover:bg-white/10"
+              >
+                <Settings className="h-3.5 w-3.5" />
+                {showRtspInput ? 'Hide' : 'Configure'} RTSP URL
+              </button>
+              
+              {showRtspInput && (
+                <div className="mt-3 space-y-2">
+                  <label className="text-xs font-medium text-slate-300">RTSP Stream URL</label>
+                  <input
+                    type="text"
+                    value={rtspUrl}
+                    onChange={(e) => setRtspUrl(e.target.value)}
+                    disabled={isStreaming}
+                    placeholder="rtsp://username:password@host:port"
+                    className="w-full rounded-lg border border-white/10 bg-slate-900/50 px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:border-indigo-500/50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                  />
+                  <p className="text-[10px] text-slate-400">
+                    Change RTSP URL before starting stream
+                  </p>
+                </div>
+              )}
+            </div>
+          </SectionCard>
+
+          {sections && (
+            <SectionCard
+              title={
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-amber-400" /> Detailed Scene Analysis
+                </div>
+              }
+            >
+              <div className="space-y-4 text-sm leading-relaxed text-slate-300">
+                {sections.location && (
+                  <div>
+                    <div className="mb-1 font-medium text-slate-200">Location & Environment</div>
+                    <p className="text-slate-300/90">{sections.location}</p>
+                  </div>
+                )}
+                {sections.people && (
+                  <div>
+                    <div className="mb-1 font-medium text-slate-200">People & Activities</div>
+                    <p className="text-slate-300/90">{sections.people}</p>
+                  </div>
+                )}
+                {sections.notable && (
+                  <div>
+                    <div className="mb-1 font-medium text-slate-200">Notable Elements</div>
+                    <p className="text-slate-300/90">{sections.notable}</p>
+                  </div>
+                )}
+                {sections.overall && (
+                  <div>
+                    <div className="mb-1 font-medium text-slate-200">Overall Context</div>
+                    <p className="text-slate-300/90">{sections.overall}</p>
+                  </div>
+                )}
+              </div>
+            </SectionCard>
+          )}
+        </div>
+      </main>
+
+      {/* Sticky Insight Bar */}
+      <div className="sticky bottom-4 z-30 mx-auto flex w-full max-w-5xl items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-900/90 px-4 py-3 shadow-2xl backdrop-blur">
+        <div className="flex flex-wrap items-center gap-2 text-sm text-slate-200/90">
+          <Capsule tone="slate">
+            {isStreaming ? "Stream Active" : "Stream Inactive"}
+          </Capsule>
+          <Capsule tone="slate">{totalCount} visible individuals</Capsule>
+          <Capsule tone="slate">
+            {analyzedFrames.length} frames analyzed
+          </Capsule>
+          <Capsule tone="slate">Next capture in {seconds}s</Capsule>
+        </div>
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={fetchAnalyzedFrames}
+            className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs hover:bg-white/10"
+          >
+            <RefreshCw className="h-3.5 w-3.5" /> Refresh
+          </button>
+          <button className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs hover:bg-white/10">
+            <BarChart3 className="h-3.5 w-3.5" /> View Trend
+          </button>
+          <button className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs hover:bg-white/10">
+            <Settings className="h-3.5 w-3.5" /> Settings
+          </button>
+        </div>
+      </div>
+
+      {/* Frame Detail Modal */}
+      {selectedFrame && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+          onClick={() => setSelectedFrame(null)}
+        >
+          <div 
+            className="relative w-full max-w-6xl max-h-[90vh] overflow-y-auto rounded-2xl border border-white/20 bg-slate-900 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-white/10 bg-slate-900/95 backdrop-blur px-6 py-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-500/20 text-indigo-300">
+                  <Camera className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-200">Frame Analysis Details</h2>
+                  <p className="text-xs text-slate-400">
+                    Captured at {new Date(selectedFrame.timestamp).toLocaleString()}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedFrame(null)}
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-slate-400 transition-colors hover:bg-white/10 hover:text-slate-200"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6 space-y-6">
+              {/* Top Section: Image and Counts */}
+              <div className="grid gap-6 lg:grid-cols-3">
+                {/* Frame Image */}
+                <div className="lg:col-span-2">
+                  <div className="overflow-hidden rounded-xl border border-white/10 bg-slate-950">
+                    <img
+                      src={`http://localhost:3001${selectedFrame.filepath}`}
+                      alt={`Frame ${selectedFrame.id}`}
+                      className="w-full h-auto"
+                    />
+                  </div>
+                  <div className="mt-3 flex items-center gap-2 text-xs text-slate-400">
+                    <Clock className="h-3.5 w-3.5" />
+                    <span>Timestamp: {new Date(selectedFrame.timestamp).toLocaleString('en-US', {
+                      month: 'short',
+                      day: '2-digit',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit',
+                      hour12: true
+                    })}</span>
+                  </div>
+                </div>
+
+                {/* People Count Panel */}
+                <div className="space-y-3">
+                  <h3 className="text-sm font-semibold text-slate-200 uppercase tracking-wide flex items-center gap-2">
+                    <Users2 className="h-4 w-4" /> People Count
+                  </h3>
+                  
+                  {(() => {
+                    const analysis = parseAnalysis(selectedFrame);
+                    return (
+                      <>
+                        <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/10 p-4">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 text-slate-300">
+                              <DoorOpen className="h-4 w-4" />
+                              <span className="text-sm">Near Doors</span>
+                            </div>
+                            <span className="text-3xl font-bold text-indigo-300">
+                              {analysis?.persons_near_doors ?? 0}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 text-slate-300">
+                              <UserCheck className="h-4 w-4" />
+                              <span className="text-sm">At Reception</span>
+                            </div>
+                            <span className="text-3xl font-bold text-amber-300">
+                              {analysis?.persons_at_reception ?? 0}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl border border-purple-500/30 bg-purple-500/10 p-4">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 text-slate-300">
+                              <Users className="h-4 w-4" />
+                              <span className="text-sm">Other Areas</span>
+                            </div>
+                            <span className="text-3xl font-bold text-purple-300">
+                              {analysis?.persons_in_other_areas ?? 0}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl border-2 border-emerald-500/40 bg-gradient-to-br from-emerald-500/20 to-emerald-500/10 p-4">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 text-slate-200">
+                              <Eye className="h-5 w-5" />
+                              <span className="text-sm font-semibold">Total Visible</span>
+                            </div>
+                            <span className="text-4xl font-bold text-emerald-300">
+                              {analysis?.total_persons ?? 0}
+                            </span>
+                          </div>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+
+              {/* AI Scene Insight */}
+              {(() => {
+                const captionMatch = typeof selectedFrame.analysis === 'string' 
+                  ? selectedFrame.analysis.match(/<span class=["']ai-caption["']>(.*?)<\/span>/)
+                  : selectedFrame.analysis?.scene_description?.match(/<span class=["']ai-caption["']>(.*?)<\/span>/);
+                
+                if (captionMatch) {
+                  return (
+                    <div className="rounded-xl border border-amber-500/30 bg-gradient-to-r from-amber-500/10 to-transparent p-5">
+                      <div className="flex items-start gap-3">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-500/20">
+                          <Eye className="h-5 w-5 text-amber-400" />
+                        </div>
+                        <div className="flex-1">
+                          <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-amber-300">
+                            AI Scene Insight
+                          </h3>
+                          <p className="text-base leading-relaxed text-slate-200">
+                            {captionMatch[1]}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+
+              {/* Detailed Scene Analysis */}
+              {(() => {
+                const sections = extractSections(selectedFrame.analysis);
+                if (sections) {
+                  return (
+                    <div className="rounded-xl border border-white/10 bg-white/5 p-5">
+                      <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-200 flex items-center gap-2">
+                        <AlertTriangle className="h-4 w-4 text-indigo-400" /> Detailed Scene Analysis
+                      </h3>
+                      <div className="space-y-4 text-sm leading-relaxed text-slate-300">
+                        {sections.location && (
+                          <div className="pb-4 border-b border-white/10">
+                            <div className="mb-2 font-medium text-slate-200">🏢 Location & Environment</div>
+                            <p className="text-slate-300/90">{sections.location}</p>
+                          </div>
+                        )}
+                        {sections.people && (
+                          <div className="pb-4 border-b border-white/10">
+                            <div className="mb-2 font-medium text-slate-200">👥 People & Activities</div>
+                            <p className="text-slate-300/90">{sections.people}</p>
+                          </div>
+                        )}
+                        {sections.notable && (
+                          <div className="pb-4 border-b border-white/10">
+                            <div className="mb-2 font-medium text-slate-200">🔍 Notable Elements</div>
+                            <p className="text-slate-300/90">{sections.notable}</p>
+                          </div>
+                        )}
+                        {sections.overall && (
+                          <div>
+                            <div className="mb-2 font-medium text-slate-200">📊 Overall Status</div>
+                            <p className="text-slate-300/90">{sections.overall}</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="sticky bottom-0 border-t border-white/10 bg-slate-900/95 backdrop-blur px-6 py-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-xs text-slate-400">
+                  <span>Frame ID: {selectedFrame.id}</span>
+                  <span>•</span>
+                  <span>Analyzed by {modelName}</span>
+                </div>
+                <button
+                  onClick={() => setSelectedFrame(null)}
+                  className="rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-200 transition-colors hover:bg-white/10"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

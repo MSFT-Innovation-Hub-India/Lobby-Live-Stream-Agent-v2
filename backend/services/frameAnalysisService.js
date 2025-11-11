@@ -90,6 +90,10 @@ class FrameAnalysisService {
 
     ffmpeg.stderr.on('data', (data) => {
       errorOutput += data.toString();
+      // Log FFmpeg output for debugging
+      if (data.toString().includes('error') || data.toString().includes('Error')) {
+        console.error('FFmpeg stderr:', data.toString().substring(0, 200));
+      }
     });
 
     ffmpeg.on('close', async (code) => {
@@ -127,8 +131,8 @@ class FrameAnalysisService {
           console.error('Error analyzing frame:', error.message);
         }
       } else {
-        console.error(`Failed to capture frame. Exit code: ${code}`);
-        console.error('FFmpeg error:', errorOutput.substring(0, 500));
+        console.error(`Failed to capture frame. Exit code: ${code}, File exists: ${fs.existsSync(filepath)}`);
+        console.error('FFmpeg output:', errorOutput.substring(Math.max(0, errorOutput.length - 500)));
       }
     });
 
@@ -150,6 +154,61 @@ class FrameAnalysisService {
       const base64Image = imageBuffer.toString('base64');
 
       // Call Azure OpenAI with vision capabilities
+      const analysisPrompt = `You are an AI security analyst monitoring a lobby/reception area. Analyze this frame and provide a JSON response with the following structure:
+{
+    "timestamp": "current_time",
+    "persons_near_doors": number,
+    "persons_at_reception": number,
+    "persons_in_other_areas": number,
+    "total_persons": number,
+    "scene_description": "markdown_formatted_description"
+}
+
+CRITICAL COUNTING INSTRUCTIONS - READ CAREFULLY:
+• FIRST: Carefully scan the ENTIRE image from edge to edge, including all corners and distant areas
+• IDENTIFY: Look for ALL human figures - standing, sitting, walking, or partially visible
+• COUNT EVERYONE: Every person you see must be included, even if partially obscured or at a distance
+• VERIFY: After counting, double-check by scanning the image again to ensure no one was missed
+• "persons_near_doors": Count people within 2-3 meters of entrance/exit doors
+• "persons_at_reception": Count people at or immediately near the reception desk
+• "persons_in_other_areas": Count people in waiting areas, walking through lobby, or anywhere else
+• "total_persons": MUST equal persons_near_doors + persons_at_reception + persons_in_other_areas
+• ACCURACY CHECK: If you see 2 people, total_persons must be 2. If you see 5 people, total_persons must be 5
+• DO NOT default to 0 - if you see people in the image, COUNT THEM ALL
+
+For the SCENE_DESCRIPTION field:
+- The very first line should be a creative, witty caption returned AS AN HTML SNIPPET only (not markdown). The HTML must be a single line using the class 'ai-caption'.
+
+CREATIVITY GUIDELINES for the caption:
+• Observe unique details: lighting moods, furniture arrangements, architectural elements, shadows, reflections
+• Notice human behavior: postures, interactions, walking patterns, waiting styles, phone usage
+• Consider time/context clues: business hours activity, seasonal elements, crowd density patterns
+• Use varied humor styles: observational wit, gentle irony, playful metaphors, situational comedy
+• Reference different themes: office culture, human nature, design aesthetics, technology, social dynamics
+• Avoid repetitive coffee/contemplation jokes - be genuinely observant and creative
+• Make it feel like a smart, witty photographer's caption rather than generic humor
+
+Examples of creative variety:
+- <span class="ai-caption">The lobby's geometric carpet seems to be directing foot traffic like a very stylish airport runway.</span>
+- <span class="ai-caption">Three people, three different relationships with waiting — the pacers, the phone-scrollers, and the zen masters.</span>
+- <span class="ai-caption">Corporate minimalism meets human chaos: the eternal dance of modern office spaces.</span>
+
+- Following that first HTML line, include the rest of the scene description as markdown using exactly this structure (with ONE blank line between header and content and ONE blank line between sections):
+
+**🏢 Location & Environment:**
+[Brief description of setting and lighting conditions]
+
+**👥 People & Activities:**
+[Describe ALL people visible - their locations (near doors, at reception, in other areas) and actions]
+
+**🔍 Notable Elements:**
+[Signs, equipment, furniture, or any unusual activities observed]
+
+**📊 Overall Status:**
+[General assessment - busy/quiet, normal operations, any security concerns]
+
+IMPORTANT: Use exactly ONE blank line between each section header and content, and ONE blank line between sections. The first (HTML) line should be one single HTML element only. VERIFY that total_persons equals the sum of persons_near_doors + persons_at_reception + persons_in_other_areas. Return ONLY valid JSON, no other text.`;
+
       const response = await this.openaiClient.getChatCompletions(
         this.deploymentName,
         [
@@ -158,7 +217,7 @@ class FrameAnalysisService {
             content: [
               {
                 type: 'text',
-                text: 'Please analyze this frame from a lobby surveillance camera. Describe what you see, including people, activities, objects, and any notable events or situations. Be specific and detailed.'
+                text: analysisPrompt
               },
               {
                 type: 'image_url',
@@ -169,11 +228,38 @@ class FrameAnalysisService {
             ]
           }
         ],
-        { maxTokens: 500 }
+        { 
+          maxTokens: 1000,
+          temperature: 0.3  // Lower temperature for more accurate, consistent counting
+        }
       );
 
-      const analysis = response.choices[0]?.message?.content || 'No analysis available';
-      return analysis;
+      const rawAnalysis = response.choices[0]?.message?.content || 'No analysis available';
+      
+      // Try to parse JSON response
+      try {
+        // Extract JSON from markdown code blocks if present
+        let jsonStr = rawAnalysis;
+        const jsonMatch = rawAnalysis.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+        if (jsonMatch) {
+          jsonStr = jsonMatch[1];
+        }
+        
+        const parsedAnalysis = JSON.parse(jsonStr);
+        return parsedAnalysis;
+      } catch (parseError) {
+        console.warn('Failed to parse JSON response, returning raw text:', parseError.message);
+        console.warn('Raw response:', rawAnalysis);
+        // Return in expected format even if parsing fails
+        return {
+          timestamp: new Date().toISOString(),
+          persons_near_doors: 0,
+          persons_at_reception: 0,
+          persons_in_other_areas: 0,
+          total_persons: 0,
+          scene_description: rawAnalysis
+        };
+      }
     } catch (error) {
       console.error('Error in Azure OpenAI analysis:', error.message);
       return `Error analyzing frame: ${error.message}`;
@@ -190,7 +276,8 @@ class FrameAnalysisService {
     return {
       isCapturing: this.isCapturing,
       frameCount: this.analyzedFrames.length,
-      rtspUrl: this.rtspUrl
+      rtspUrl: this.rtspUrl,
+      deploymentName: this.deploymentName
     };
   }
 }

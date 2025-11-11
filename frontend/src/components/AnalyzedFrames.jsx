@@ -63,24 +63,57 @@ const AnalyzedFrames = ({ refreshTrigger }) => {
     return titles[index];
   };
 
-  const formatAnalysis = (analysis) => {
-    if (!analysis) return { sections: [] };
+  const formatAnalysis = (analysisData) => {
+    if (!analysisData) return { sections: [], caption: null, counts: null };
+
+    // Handle both string and object formats
+    let analysis, counts;
+    if (typeof analysisData === 'string') {
+      analysis = analysisData;
+      counts = null;
+    } else {
+      analysis = analysisData.scene_description || '';
+      // Ensure counts are defined, defaulting to null if all are 0 or undefined
+      const hasValidCounts = (
+        analysisData.persons_near_doors !== undefined ||
+        analysisData.persons_at_reception !== undefined ||
+        analysisData.persons_in_other_areas !== undefined ||
+        analysisData.total_persons !== undefined
+      );
+      counts = hasValidCounts ? {
+        near_doors: analysisData.persons_near_doors || 0,
+        at_reception: analysisData.persons_at_reception || 0,
+        other_areas: analysisData.persons_in_other_areas || 0,
+        total: analysisData.total_persons || 0
+      } : null;
+    }
+
+    if (!analysis) return { sections: [], caption: null, counts };
+
+    // Extract HTML caption if present
+    let caption = null;
+    let remainingText = analysis;
+    const captionMatch = analysis.match(/<span class=["']ai-caption["']>(.*?)<\/span>/);
+    if (captionMatch) {
+      caption = captionMatch[1];
+      remainingText = analysis.replace(captionMatch[0], '').trim();
+    }
 
     // Parse markdown-style formatting
     const sections = [];
-    const lines = analysis.split('\n').filter(line => line.trim());
+    const lines = remainingText.split('\n').filter(line => line.trim());
 
     let currentSection = { title: 'Overview', content: [], items: [] };
     
     for (const line of lines) {
       const trimmedLine = line.trim();
       
-      // Check for markdown headers (### Header)
-      if (trimmedLine.match(/^#{1,3}\s+\*?\*?(.+?)\*?\*?:?$/)) {
+      // Check for markdown headers (### Header or **Header:**)
+      if (trimmedLine.match(/^#{1,3}\s+\*?\*?(.+?)\*?\*?:?$/) || trimmedLine.match(/^\*\*[🏢🏛️👥👤🎨💡🚪🪴✨🔍📍🎯💼🏃📊].+?\*\*:?$/)) {
         if (currentSection.content.length > 0 || currentSection.items.length > 0) {
           sections.push({ ...currentSection });
         }
-        const title = trimmedLine.replace(/^#{1,3}\s+\*?\*?/, '').replace(/\*?\*?:?$/, '').trim();
+        let title = trimmedLine.replace(/^#{1,3}\s+/, '').replace(/^\*\*/, '').replace(/\*\*:?$/, '').trim();
         currentSection = {
           title: title,
           content: [],
@@ -95,21 +128,9 @@ const AnalyzedFrames = ({ refreshTrigger }) => {
         currentSection.items.push(formatted);
       }
       // Regular text with potential bold formatting
-      else if (trimmedLine && !trimmedLine.match(/^[🏢🏛️👥👤🎨💡🚪🪴✨🔍📍🎯💼🏃]/)) {
+      else if (trimmedLine) {
         const formatted = trimmedLine.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
         currentSection.content.push(formatted);
-      }
-      // Check if line looks like a heading with emoji
-      else if (trimmedLine.match(/^[🏢🏛️👥👤🎨💡🚪🪴✨🔍📍🎯💼🏃]/)) {
-        if (currentSection.content.length > 0 || currentSection.items.length > 0) {
-          sections.push({ ...currentSection });
-        }
-        const parts = trimmedLine.split(':');
-        currentSection = {
-          title: parts[0].trim(),
-          content: parts.length > 1 ? [parts.slice(1).join(':').trim()] : [],
-          items: []
-        };
       }
     }
     
@@ -118,8 +139,8 @@ const AnalyzedFrames = ({ refreshTrigger }) => {
     }
 
     // If no sections were created, make one from the whole analysis
-    if (sections.length === 0) {
-      const formatted = analysis.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    if (sections.length === 0 && remainingText) {
+      const formatted = remainingText.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
       sections.push({
         title: '📋 Analysis',
         content: [formatted],
@@ -127,7 +148,7 @@ const AnalyzedFrames = ({ refreshTrigger }) => {
       });
     }
 
-    return { sections };
+    return { sections, caption, counts };
   };
 
   const goToPrevious = () => {
@@ -165,7 +186,7 @@ const AnalyzedFrames = ({ refreshTrigger }) => {
   }
 
   const currentFrame = frames[currentIndex];
-  const { sections } = formatAnalysis(currentFrame.analysis);
+  const { sections, caption, counts } = formatAnalysis(currentFrame.analysis);
 
   return (
     <div className="analyzed-frames-container">
@@ -197,17 +218,68 @@ const AnalyzedFrames = ({ refreshTrigger }) => {
         </button>
 
         <div className="frame-showcase">
-          <div className="showcase-image-section">
-            <img
-              src={`http://localhost:3001${currentFrame.filepath}`}
-              alt={`Frame ${currentFrame.id}`}
-              className="showcase-image"
-            />
-            <div className="image-overlay">
-              <div className="frame-timestamp">
-                📅 {formatTimestamp(currentFrame.timestamp)}
+          <div className="showcase-top-section">
+            <div className="showcase-left-column">
+              {caption && (
+                <div className="catchy-title-banner">
+                  <span className="title-icon">✨</span>
+                  <h3 className="catchy-title">{caption}</h3>
+                  <span className="title-icon">✨</span>
+                </div>
+              )}
+              
+              <div className="showcase-image-wrapper">
+                <img
+                  src={`http://localhost:3001${currentFrame.filepath}`}
+                  alt={`Frame ${currentFrame.id}`}
+                  className="showcase-image"
+                />
+                <div className="image-overlay">
+                  <div className="frame-timestamp">
+                    📅 {formatTimestamp(currentFrame.timestamp)}
+                  </div>
+                </div>
               </div>
             </div>
+
+            {counts && (
+              <div className="live-count-panel">
+                <div className="count-panel-header">
+                  <h4 className="live-count-title">📊 Live Count</h4>
+                  <p className="live-count-subtitle">Real-time detection</p>
+                </div>
+                <div className="count-grid">
+                  <div className="count-card">
+                    <div className="count-card-header">
+                      <span className="count-icon">🚪</span>
+                      <span className="count-label">Near Doors</span>
+                    </div>
+                    <span className="count-value">{counts.near_doors}</span>
+                  </div>
+                  <div className="count-card">
+                    <div className="count-card-header">
+                      <span className="count-icon">🏢</span>
+                      <span className="count-label">At Reception</span>
+                    </div>
+                    <span className="count-value">{counts.at_reception}</span>
+                  </div>
+                  <div className="count-card">
+                    <div className="count-card-header">
+                      <span className="count-icon">🚶</span>
+                      <span className="count-label">Other Areas</span>
+                    </div>
+                    <span className="count-value">{counts.other_areas || 0}</span>
+                  </div>
+                  <div className="count-card count-card-highlight">
+                    <div className="count-card-header">
+                      <span className="count-icon">👥</span>
+                      <span className="count-label">Total Visible</span>
+                    </div>
+                    <span className="count-value count-value-highlight">{counts.total}</span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="showcase-analysis-section">
@@ -218,9 +290,11 @@ const AnalyzedFrames = ({ refreshTrigger }) => {
 
             <div className="analysis-content">
               {sections.map((section, idx) => (
-                <div key={idx} className="analysis-section">
-                  <h4 className="section-title">{section.title}</h4>
-                  <div className="section-content">
+                <div key={idx} className="analysis-card">
+                  <div className="card-header">
+                    <h4 className="section-title">{section.title}</h4>
+                  </div>
+                  <div className="card-content">
                     {section.content.map((paragraph, pIdx) => (
                       <p key={pIdx} dangerouslySetInnerHTML={{ __html: paragraph }}></p>
                     ))}

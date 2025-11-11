@@ -68,6 +68,7 @@ Required variables in `.env`:
 AZURE_OPENAI_ENDPOINT=https://your-resource-name.openai.azure.com/
 AZURE_OPENAI_API_KEY=your-api-key-here
 AZURE_OPENAI_DEPLOYMENT_NAME=gpt-4o
+RTSP_URL=rtsp://your-camera-url
 ```
 
 **Note:** The app works without Azure OpenAI, but AI frame analysis will be disabled. You'll still get live streaming!
@@ -84,9 +85,15 @@ The `.env` file contains:
 ```env
 # Backend API Configuration
 VITE_API_BASE_URL=http://localhost:3001
+
+# Default RTSP Stream URL
+VITE_DEFAULT_RTSP_URL=rtsp://admin:%3FW%21ndows%4010@10.11.70.10:554
 ```
 
-**Note:** For local development, the default `http://localhost:3001` works perfectly. Change this only when deploying to production.
+**Note:** 
+- For local development, the default `http://localhost:3001` works perfectly
+- The RTSP URL will be pre-filled in the UI settings - you can change it there
+- Change these values only when deploying to production
 
 ## Running the Application
 

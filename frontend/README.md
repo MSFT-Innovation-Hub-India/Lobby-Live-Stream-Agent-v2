@@ -124,12 +124,16 @@ cp .env.example .env
 ```env
 # Backend API Configuration
 VITE_API_BASE_URL=http://localhost:3001
+
+# Default RTSP Stream URL
+VITE_DEFAULT_RTSP_URL=rtsp://admin:%3FW%21ndows%4010@10.11.70.10:554
 ```
 
 **Important Notes**:
 - All Vite environment variables must start with `VITE_` prefix
 - Changes to `.env` require restarting the dev server
 - For production, update `VITE_API_BASE_URL` to your production backend URL
+- `VITE_DEFAULT_RTSP_URL` is pre-filled in the UI - users can override it directly in the settings
 - Never commit `.env` files with sensitive credentials (use `.env.example` instead)
 
 **How it works**:

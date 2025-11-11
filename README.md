@@ -400,6 +400,9 @@ AZURE_OPENAI_API_VERSION=2024-02-15-preview
 
 # Frame Analysis Configuration
 MAX_ANALYZED_FRAMES=10
+
+# RTSP Stream Configuration
+RTSP_URL=rtsp://admin:%3FW%21ndows%4010@10.11.70.10:554
 ```
 
 **How to get Azure OpenAI credentials**:
@@ -416,17 +419,22 @@ cd frontend
 cp .env.example .env
 ```
 
-2. **Edit `.env` file** with your backend URL:
+2. **Edit `.env` file** with your backend URL and default RTSP stream:
 
 ```env
 # Backend API Configuration
 VITE_API_BASE_URL=http://localhost:3001
+
+# Default RTSP Stream URL
+VITE_DEFAULT_RTSP_URL=rtsp://admin:%3FW%21ndows%4010@10.11.70.10:554
 ```
 
 **Important Notes**:
 - Change `VITE_API_BASE_URL` to your production backend URL when deploying
 - For local development, use `http://localhost:3001`
 - For production, use your actual backend domain (e.g., `https://api.yourdomain.com`)
+- `VITE_DEFAULT_RTSP_URL` will be pre-filled in the UI settings input field
+- Users can override the RTSP URL directly in the UI without changing the `.env` file
 - All Vite environment variables must start with `VITE_` to be exposed to the frontend
 
 ---

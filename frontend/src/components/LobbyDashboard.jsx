@@ -73,7 +73,7 @@ export default function LobbyLiveStreamDashboard() {
   const [seconds, setSeconds] = useState(60);
   const [expanded, setExpanded] = useState(true);
   const [loading, setLoading] = useState(false);
-  const [rtspUrl, setRtspUrl] = useState('rtsp://admin:%3FW%21ndows%4010@10.11.70.10:554');
+  const [rtspUrl, setRtspUrl] = useState(import.meta.env.VITE_DEFAULT_RTSP_URL || '');
   const [showRtspInput, setShowRtspInput] = useState(false);
   const [modelName, setModelName] = useState('GPT-4o');
   const [selectedFrame, setSelectedFrame] = useState(null);

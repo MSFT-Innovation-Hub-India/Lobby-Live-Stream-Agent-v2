@@ -187,9 +187,11 @@ export default function LobbyLiveStreamDashboard() {
       
       if (response.frames && response.frames.length > 0) {
         console.log('Setting analyzed frames:', response.frames.length, 'frames');
-        setAnalyzedFrames(response.frames);
+        // Limit to 10 frames max to prevent memory buildup
+        const limitedFrames = response.frames.slice(0, 10);
+        setAnalyzedFrames(limitedFrames);
         // Find the index of the newest frame (highest timestamp)
-        const newestIndex = response.frames.reduce((maxIdx, frame, idx, arr) => 
+        const newestIndex = limitedFrames.reduce((maxIdx, frame, idx, arr) => 
           frame.timestamp > arr[maxIdx].timestamp ? idx : maxIdx, 0);
         setCurrentFrameIndex(newestIndex);
       } else {

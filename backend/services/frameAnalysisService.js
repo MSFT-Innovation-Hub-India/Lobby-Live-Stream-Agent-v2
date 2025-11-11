@@ -179,19 +179,34 @@ CRITICAL COUNTING INSTRUCTIONS - READ CAREFULLY:
 For the SCENE_DESCRIPTION field:
 - The very first line should be a creative, witty caption returned AS AN HTML SNIPPET only (not markdown). The HTML must be a single line using the class 'ai-caption'.
 
-CREATIVITY GUIDELINES for the caption:
-• Observe unique details: lighting moods, furniture arrangements, architectural elements, shadows, reflections
-• Notice human behavior: postures, interactions, walking patterns, waiting styles, phone usage
-• Consider time/context clues: business hours activity, seasonal elements, crowd density patterns
-• Use varied humor styles: observational wit, gentle irony, playful metaphors, situational comedy
-• Reference different themes: office culture, human nature, design aesthetics, technology, social dynamics
-• Avoid repetitive coffee/contemplation jokes - be genuinely observant and creative
-• Make it feel like a smart, witty photographer's caption rather than generic humor
+CREATIVITY GUIDELINES for the caption - BE DYNAMIC AND OBSERVANT:
+• FOCUS ON WHAT'S ACTUALLY HAPPENING: Comment on the specific activity, behavior, or situation you observe
+• AVOID generic starts like "In this lobby..." or "The lobby..." - be specific about the ACTION or SCENE
+• Observe specific behaviors and interactions:
+  - Busy reception? Comment on the queue, service interaction, or multitasking
+  - People waiting? Note their body language, patience levels, phone usage
+  - Doors/gates in motion? Comment on the flow, entry/exit patterns
+  - Lift area activity? Note the waiting, anticipation, or rush
+  - Empty space? Observe the calm, the architecture's moment to shine, or the "before the storm" feel
+  - Fire extinguisher visible? Make a witty safety observation
+  - Plants, furniture, lighting? Note how they set the mood
+• Use varied humor styles: observational wit, gentle irony, playful metaphors, situational comedy, social commentary
+• Reference different themes based on what you SEE: office culture, human nature, architectural design, technology, social dynamics, time of day, energy levels
+• VARY your opening words - use action verbs, observations, questions, or scene-setters
+• Make each caption unique to what's happening in THIS specific frame
 
-Examples of creative variety:
-- <span class="ai-caption">The lobby's geometric carpet seems to be directing foot traffic like a very stylish airport runway.</span>
-- <span class="ai-caption">Three people, three different relationships with waiting — the pacers, the phone-scrollers, and the zen masters.</span>
-- <span class="ai-caption">Corporate minimalism meets human chaos: the eternal dance of modern office spaces.</span>
+Examples showing VARIETY and SPECIFICITY:
+- <span class="ai-caption">Rush hour choreography: three people, three destinations, one perfectly timed door avoidance dance.</span>
+- <span class="ai-caption">Reception desk operating at full capacity while the lobby's geometric carpet patiently awaits its next set of footprints.</span>
+- <span class="ai-caption">That fire extinguisher has seen more action in safety drills than it ever will in real life.</span>
+- <span class="ai-caption">Two at reception, one contemplating the elevator buttons — the eternal triangle of lobby decision-making.</span>
+- <span class="ai-caption">Early morning tranquility: even the plants look half-asleep before the caffeine crowd arrives.</span>
+- <span class="ai-caption">Queue formation in progress — observe the careful maintenance of personal space boundaries.</span>
+- <span class="ai-caption">Lift doors closing while someone power-walks from the entrance — the daily gamble begins.</span>
+- <span class="ai-caption">The reception desk: where multitasking meets marathon patience, one visitor at a time.</span>
+- <span class="ai-caption">Architectural minimalism gets a reality check as actual humans add delightful chaos to the clean lines.</span>
+
+DO NOT use repetitive patterns or generic lobby descriptions. Each caption should reflect the SPECIFIC scene you're analyzing.
 
 - Following that first HTML line, include the rest of the scene description as markdown using exactly this structure (with ONE blank line between header and content and ONE blank line between sections):
 

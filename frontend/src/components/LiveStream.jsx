@@ -18,7 +18,7 @@ const LiveStream = ({ streamUrl, isStreaming }) => {
     }
 
     const video = videoRef.current;
-    const fullStreamUrl = `http://localhost:3001${streamUrl}`;
+    const fullStreamUrl = `${import.meta.env.VITE_API_BASE_URL}${streamUrl}`;
 
     if (Hls.isSupported()) {
       // Initialize HLS.js

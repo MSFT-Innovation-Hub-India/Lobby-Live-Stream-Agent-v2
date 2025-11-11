@@ -1,6 +1,6 @@
 # Features Overview
 
-Complete feature list and technical capabilities of Lobby Live Stream Agent v2.
+Complete feature list and technical capabilities of **AI Eye - Hub Lobby Live Stream Agent v2**.
 
 ## Core Features
 
@@ -13,56 +13,75 @@ Complete feature list and technical capabilities of Lobby Live Stream Agent v2.
 - Native HLS support for Safari
 - Low-latency mode enabled
 - Automatic reconnection on errors
+- Functional setState to prevent unnecessary HLS player re-initialization
 
 **User Benefits**:
 - Watch live camera feeds from any device
 - No special plugins required
 - Works on desktop and mobile
 - Smooth playback with minimal latency (2-5 seconds)
+- Stable streaming without random disconnections
 
 ---
 
 ### 2. AI-Powered Frame Analysis ✅
-**Description**: Automatic capture and intelligent analysis of video frames using Azure OpenAI GPT-4o
+**Description**: Automatic capture and intelligent analysis of video frames using Azure OpenAI GPT-4o Vision
 
 **Technical Details**:
 - Captures one frame every 60 seconds
 - Independent capture (doesn't affect live stream)
 - Base64 image encoding
 - Azure OpenAI vision API integration
-- GPT-4o model for analysis
+- GPT-4o or GPT-4o-mini model support
+- Enhanced AI prompt for accurate person counting
+- Temperature set to 0.3 for consistent results
+- Dynamic model name display from backend .env
 
 **User Benefits**:
 - Automatic description of what's happening in the video
 - Intelligent understanding of scenes and activities
+- **Accurate people counting** (near doors, at reception, in other areas)
 - No manual monitoring required
-- Detailed text descriptions of each frame
+- Detailed text descriptions with **witty, dynamic captions**
 
 **Sample Analysis Output**:
-```
-"The lobby area shows two people near the reception desk. One person 
-appears to be checking in while the receptionist is assisting them. 
-The lighting is bright, and there are several chairs visible in the 
-waiting area. The environment appears professional and well-maintained."
+```json
+{
+  "peopleCount": {
+    "nearDoors": 1,
+    "atReception": 2,
+    "otherAreas": 3,
+    "total": 6
+  },
+  "sceneDescription": "Reception desk is buzzing with activity as 
+  two visitors check in while one person approaches the door. The 
+  lighting is bright and professional.",
+  "wittySummary": "The lobby is getting cozy with 6 people—reception 
+  is doing brisk business while someone makes their grand entrance!"
+}
 ```
 
 ---
 
-### 3. Modern Responsive UI ✅
-**Description**: Beautiful, professional interface that works on all devices
+### 3. Modern Responsive UI with Eye-Themed Branding ✅
+**Description**: Beautiful, professional interface with distinctive "AI Eye" branding
 
 **Technical Details**:
-- React.js with hooks
-- CSS3 with responsive design
+- React.js with hooks (JSX, not TypeScript)
+- Tailwind CSS with responsive design
 - Dark theme optimized for monitoring
 - Component-based architecture
+- Eye-themed logo with pulsing indicator
+- Gradient text effects
 
 **Features**:
 - Clean, intuitive layout
+- **Eye-themed branding** with gradient "AI Eye" logo
 - Mobile-responsive grid
 - Smooth animations
 - Professional color scheme
 - Accessible design
+- **Pulsing green indicator** showing active AI monitoring
 
 **Supported Devices**:
 - Desktop browsers (Chrome, Firefox, Safari, Edge)
@@ -89,24 +108,83 @@ RTSP Camera
 
 ---
 
-### 5. Real-Time Updates ✅
-**Description**: New analyzed frames appear automatically
+### 5. Real-Time Status Synchronization ✅
+**Description**: UI automatically reflects actual backend streaming state
 
 **Technical Details**:
-- Frontend polls backend every 10 seconds
-- Smooth UI updates
-- No page refresh needed
-- Manual refresh button available
+- Frontend polls backend status every 5 seconds
+- Functional setState prevents unnecessary re-renders
+- Handles backend server unavailability gracefully
+- Updates streaming status, model name, and capture status
 
 **User Experience**:
-- See new frames as they're analyzed
-- Automatic scrolling to latest content
-- Loading indicators
-- Error handling
+- See accurate streaming status at all times
+- UI syncs with backend even when servers restart
+- No false "streaming" indicators
+- Real-time capture countdown updates
 
 ---
 
-### 6. Stream Control ✅
+### 6. Prominent Countdown Timer ✅
+**Description**: Large, visible countdown showing time until next frame capture
+
+**Features**:
+- **5XL font size** for visibility from across the lobby
+- Amber gradient background with animations
+- Clock icon animations
+- Sticky banner always visible
+- 60-second countdown resets after each capture
+
+**User Benefits**:
+- Easy to see from far away in lobby
+- Know exactly when next analysis will occur
+- Visual feedback that system is active
+
+---
+
+### 7. Frame Detail Modal ✅
+**Description**: Click any frame to see full-size image and complete analysis
+
+**Features**:
+- Full-screen modal overlay
+- Large frame display
+- Complete scene description
+- People count breakdown (near doors, at reception, other areas)
+- Timestamp details
+- Close with X button or background click
+
+**User Benefits**:
+- Deep dive into any captured moment
+- Better understanding of AI analysis
+- Professional presentation of data
+
+---
+
+### 8. Memory Management ✅
+**Description**: Automatic cleanup of old frames to prevent memory issues
+
+**Technical Details**:
+- Backend stores maximum 10 frames in memory
+- Old frames automatically deleted from disk (fs.unlinkSync)
+- Frontend displays maximum 10 frames
+- React garbage collection handles removed frames
+
+**HLS Segment Management**:
+- FFmpeg auto-deletes old video segments during streaming
+- Maximum 10-15 `.ts` segment files exist at any time
+- Each segment is 2 seconds (~200KB-500KB)
+- Configured with `-hls_flags delete_segments` and `-hls_list_size 10`
+- Segments in `backend/stream/` folder are temporary and automatically managed
+
+**Benefits**:
+- Application runs indefinitely without memory issues
+- No manual cleanup needed for frames or video segments
+- Optimal performance maintained
+- Minimal disk space usage (~2-7MB for video segments, <5MB for frame images)
+
+---
+
+### 9. Stream Control ✅
 **Description**: Easy-to-use controls for managing video streams
 
 **Features**:
@@ -155,29 +233,52 @@ rtsp://domain.com/stream
 
 ---
 
-### Frontend (React.js)
+### Frontend (React.js with JSX)
 
-**Components**:
+**Main Component: LobbyDashboard**
+- Unified dashboard with all features integrated
+- Eye-themed header with gradient logo
+- HLS.js video player with stability improvements
+- Frame gallery with click-to-expand modal
+- Prominent countdown timer banner
+- Real-time status synchronization
+- State management with React hooks
 
-1. **StreamControls**
-   - RTSP URL input
-   - Start/Stop buttons
-   - Status display
-   - Error handling
+**Key Functions**:
+- `handleStreamToggle()` - Start/stop streaming
+- `fetchAnalyzedFrames()` - Get latest frames (every 10s)
+- `fetchStreamStatus()` - Sync backend state (every 5s)
+- `setSelectedFrame()` - Open frame detail modal
 
-2. **LiveStream**
-   - HLS.js video player
-   - Video controls
+**Sub-Components**:
+
+1. **Video Player Section**
+   - HLS.js integration
+   - Video controls (play/pause, volume, fullscreen)
    - Error recovery
    - Loading states
+   - Prevents re-initialization on status updates
 
-3. **AnalyzedFrames**
+2. **Countdown Timer Banner**
+   - Large 5XL font size
+   - Amber gradient styling
+   - Animated clock icons
+   - Sticky positioning
+
+3. **Frame Gallery**
    - Responsive grid layout
-   - Frame thumbnails
-   - AI descriptions
-   - Timestamps
-   - Auto-refresh
-   - Manual refresh
+   - Frame thumbnails with hover effects
+   - AI captions preview
+   - Click to open modal
+   - Auto-refresh every 10s
+   - Manual refresh button
+
+4. **Frame Detail Modal**
+   - Full-screen overlay
+   - Large image display
+   - Complete analysis breakdown
+   - People count sections
+   - Close button and background dismiss
 
 **Services**:
 - API client (Axios)

@@ -248,7 +248,7 @@ export default function LobbyLiveStreamDashboard() {
 
   const fetchStreamStatus = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/stream/status');
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/stream/status`);
       const data = await response.json();
       
       if (data.success) {
@@ -258,7 +258,7 @@ export default function LobbyLiveStreamDashboard() {
         
         // Only update stream URL if it actually changed to avoid re-initializing HLS player
         if (backendIsStreaming && data.stream?.streamUrl) {
-          const newStreamUrl = `http://localhost:3001${data.stream.streamUrl}`;
+          const newStreamUrl = `${import.meta.env.VITE_API_BASE_URL}${data.stream.streamUrl}`;
           setStreamUrl(prevUrl => prevUrl === newStreamUrl ? prevUrl : newStreamUrl);
         } else if (!backendIsStreaming) {
           setStreamUrl(prevUrl => prevUrl === null ? prevUrl : null);
@@ -300,9 +300,8 @@ export default function LobbyLiveStreamDashboard() {
         console.log('Stream response:', response);
         
         if (response.success) {
-          // Construct full backend URL for HLS stream using window.location
-          // This ensures we use the correct host that the API calls are using
-          const backendUrl = 'http://localhost:3001';
+          // Construct full backend URL for HLS stream using environment variable
+          const backendUrl = import.meta.env.VITE_API_BASE_URL;
           const fullStreamUrl = `${backendUrl}${response.stream.streamUrl}`;
           
           console.log('Backend URL:', backendUrl);
@@ -436,8 +435,8 @@ export default function LobbyLiveStreamDashboard() {
     const analysis = parseAnalysis(frame);
     const timestamp = new Date(frame.timestamp).toLocaleTimeString();
     
-    // Construct full image URL using backend base URL
-    const imageUrl = frame.filepath ? `http://localhost:3001${frame.filepath}` : '';
+    // Construct full image URL using backend base URL from environment variable
+    const imageUrl = frame.filepath ? `${import.meta.env.VITE_API_BASE_URL}${frame.filepath}` : '';
     
     return {
       id: frame.id,
@@ -870,7 +869,7 @@ export default function LobbyLiveStreamDashboard() {
                 <div className="lg:col-span-2">
                   <div className="overflow-hidden rounded-xl border border-white/10 bg-slate-950">
                     <img
-                      src={`http://localhost:3001${selectedFrame.filepath}`}
+                      src={`${import.meta.env.VITE_API_BASE_URL}${selectedFrame.filepath}`}
                       alt={`Frame ${selectedFrame.id}`}
                       className="w-full h-auto"
                     />

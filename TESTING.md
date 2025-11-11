@@ -1,4 +1,4 @@
-# Testing Guide - Lobby Live Stream Agent v2
+# Testing Guide - AI Eye Hub Lobby Live Stream Agent v2
 
 This guide helps you test the application functionality.
 
@@ -88,22 +88,59 @@ Expected output:
 
 1. **Open Browser**: Navigate to `http://localhost:5173`
 
-2. **Enter RTSP URL**: Use one of the test streams above
+2. **Verify UI Elements**:
+   - ✅ Eye-themed "AI Eye" logo with gradient text
+   - ✅ Pulsing green indicator (AI active)
+   - ✅ RTSP URL input field
+   - ✅ Start/Stop buttons
+   - ✅ Video player area
+   - ✅ Prominent amber countdown timer banner
 
-3. **Start Stream**: Click "Start Stream" button
-   - You should see the live video start playing
-   - The status should change to "Streaming"
+3. **Enter RTSP URL**: Use one of the test streams above
 
-4. **Wait for Frame Capture**: After 60 seconds, the first frame should appear in the "Analyzed Frames" section below
+4. **Start Stream**: Click "Start Stream" button
+   - ✅ Live video should start playing within 3-5 seconds
+   - ✅ Status should change to "Streaming"
+   - ✅ Countdown timer starts at 60 seconds
+   - ✅ Model name appears in header (e.g., "gpt-4o-mini")
 
-5. **Verify Frame Analysis**:
-   - Check that the captured frame image is displayed
-   - Verify the timestamp is correct
-   - Read the AI-generated description
+5. **Wait for Frame Capture**: After 60 seconds, test:
+   - ✅ First frame appears in gallery below
+   - ✅ Frame shows thumbnail, timestamp, and AI caption
+   - ✅ Countdown resets to 60 seconds
+   - ✅ Frame gallery auto-refreshes
 
-6. **Stop Stream**: Click "Stop Stream" button
-   - Video should stop
-   - Status should change to "Stopped"
+6. **Test Frame Modal**:
+   - ✅ Click on captured frame
+   - ✅ Modal opens with large image
+   - ✅ Full scene description visible
+   - ✅ People count breakdown shown (doors, reception, other)
+   - ✅ Witty AI summary displayed
+   - ✅ Close modal with X or background click
+
+7. **Test Status Sync**:
+   - ✅ Stop backend server (Ctrl+C in backend terminal)
+   - ✅ Wait 5 seconds
+   - ✅ UI should update to show "Not Streaming"
+   - ✅ Video should stop
+   - ✅ Restart backend and verify sync
+
+8. **Test Memory Management**:
+   - ✅ Let stream run for 10+ captures (10 minutes)
+   - ✅ Verify only 10 frames shown in gallery
+   - ✅ Check `backend/captures/` has max 10 files
+   - ✅ Confirm old frames deleted
+
+9. **Test HLS Stability**:
+   - ✅ Start stream
+   - ✅ Watch for 2-3 minutes continuously
+   - ✅ Video should NOT blank out or restart
+   - ✅ Status polling (every 5s) should not affect playback
+
+10. **Stop Stream**: Click "Stop Stream" button
+    - ✅ Video should stop
+    - ✅ Status should change to "Stopped"
+    - ✅ Captured frames remain visible
 
 ## Testing Without Azure OpenAI
 

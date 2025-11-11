@@ -230,7 +230,7 @@ const AnalyzedFrames = ({ refreshTrigger }) => {
               
               <div className="showcase-image-wrapper">
                 <img
-                  src={`http://localhost:3001${currentFrame.filepath}`}
+                  src={`${import.meta.env.VITE_API_BASE_URL}${currentFrame.filepath}`}
                   alt={`Frame ${currentFrame.id}`}
                   className="showcase-image"
                 />

@@ -1,6 +1,6 @@
 # Deployment Guide
 
-This guide covers deploying the Lobby Live Stream Agent v2 application to production environments.
+This guide covers deploying the **AI Eye - Hub Lobby Live Stream Agent v2** application to production environments.
 
 ## Prerequisites
 

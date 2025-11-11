@@ -1,4 +1,4 @@
-# Contributing to Lobby Live Stream Agent v2
+# Contributing to AI Eye - Hub Lobby Live Stream Agent v2
 
 Thank you for your interest in contributing! This document provides guidelines and information for contributors.
 
@@ -20,6 +20,7 @@ Thank you for your interest in contributing! This document provides guidelines a
 - npm v9+
 - FFmpeg
 - Git
+- Azure OpenAI account (optional for AI features)
 
 ### Installation
 ```bash
@@ -45,7 +46,7 @@ npm run dev
 
 ## Code Style Guidelines
 
-### JavaScript/React
+### JavaScript/React (JSX, not TypeScript)
 - Use ES6+ syntax
 - Prefer `const` over `let`, avoid `var`
 - Use arrow functions for callbacks
@@ -53,6 +54,13 @@ npm run dev
 - Use template literals for string interpolation
 - Keep functions small and focused
 - Add JSDoc comments for complex functions
+- **We use JSX (JavaScript)** instead of TypeScript for simplicity
+
+**Why JSX?**
+- Faster development without type definitions
+- Easier for beginners to understand
+- More flexible for rapid prototyping
+- Fewer build configuration issues
 
 ### React Components
 - Use functional components with hooks
@@ -60,6 +68,7 @@ npm run dev
 - Extract reusable logic into custom hooks
 - Use descriptive prop names
 - Validate props when necessary
+- Prefer unified components over many small ones (see LobbyDashboard)
 
 ### File Naming
 - Components: PascalCase (e.g., `StreamControls.jsx`)
@@ -94,9 +103,15 @@ backend/
 - Backend starts successfully
 - Frontend builds without errors
 - Stream starts and displays video
-- Frame capture works
-- UI is responsive
+- Frame capture works (wait 60 seconds)
+- **Frame modal opens on click**
+- **Countdown timer is visible and accurate**
+- **Status syncs with backend** (test by stopping backend)
+- **Model name displays correctly** (check against .env)
+- **HLS player doesn't re-initialize** during status polling
+- UI is responsive on mobile/tablet
 - Error handling works correctly
+- **Memory stays stable** (run for extended period, check frames capped at 10)
 
 ## Pull Request Guidelines
 

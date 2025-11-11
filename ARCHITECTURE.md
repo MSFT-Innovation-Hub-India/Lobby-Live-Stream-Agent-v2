@@ -2,7 +2,7 @@
 
 ## System Architecture Overview
 
-This document describes the architecture of the Lobby Live Stream Agent v2 application.
+This document describes the architecture of **AI Eye - Hub Lobby Live Stream Agent v2** application.
 
 ## High-Level Architecture
 
@@ -10,18 +10,23 @@ This document describes the architecture of the Lobby Live Stream Agent v2 appli
 ┌─────────────────────────────────────────────────────────────────┐
 │                         User Browser                             │
 │  ┌──────────────────────────────────────────────────────────┐  │
-│  │              React Frontend (Port 5173)                   │  │
-│  │  ┌────────────┐  ┌─────────────┐  ┌─────────────────┐   │  │
-│  │  │  Stream    │  │   Stream    │  │    Analyzed     │   │  │
-│  │  │  Controls  │  │    Video    │  │     Frames      │   │  │
-│  │  │ Component  │  │  Component  │  │   Component     │   │  │
-│  │  └────────────┘  └─────────────┘  └─────────────────┘   │  │
+│  │           React Frontend (Port 5173, JSX)                │  │
+│  │  ┌────────────────────────────────────────────────────┐  │  │
+│  │  │         LobbyDashboard Component                   │  │  │
+│  │  │  ┌─────────────┐  ┌─────────────┐  ┌──────────┐  │  │  │
+│  │  │  │ Eye-Themed  │  │ Live Video  │  │  Frame   │  │  │  │
+│  │  │  │   Header    │  │  HLS Player │  │  Gallery │  │  │  │
+│  │  │  └─────────────┘  └─────────────┘  └──────────┘  │  │  │
+│  │  │  ┌─────────────┐  ┌─────────────┐  ┌──────────┐  │  │  │
+│  │  │  │  Countdown  │  │   Status    │  │  Detail  │  │  │  │
+│  │  │  │   Banner    │  │   Monitor   │  │  Modal   │  │  │  │
+│  │  │  └─────────────┘  └─────────────┘  └──────────┘  │  │  │
+│  │  └────────────────────────────────────────────────────┘  │  │
 │  └──────────────────────────────────────────────────────────┘  │
-└────────────────┬────────────────────────────────────────────────┘
-                 │
-                 │ HTTP/REST API
-                 │ (axios)
-                 ▼
+└────────────────┬───────────────────┬────────────────────────────┘
+                 │ HTTP/REST (10s)   │ HTTP/REST (5s)
+                 │ Frame Polling     │ Status Polling
+                 ▼                   ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │              Node.js/Express Backend (Port 3001)                │
 │  ┌──────────────────────────────────────────────────────────┐  │
@@ -31,6 +36,7 @@ This document describes the architecture of the Lobby Live Stream Agent v2 appli
 │  │  │  - start       │         │  - frames        │        │  │
 │  │  │  - stop        │         │  - frames/:id    │        │  │
 │  │  │  - status      │         │                  │        │  │
+│  │  │  (+ model name)│         │                  │        │  │
 │  │  └────────────────┘         └──────────────────┘        │  │
 │  └──────────────────────────────────────────────────────────┘  │
 │                                                                 │
@@ -38,19 +44,20 @@ This document describes the architecture of the Lobby Live Stream Agent v2 appli
 │  │                    Services Layer                         │  │
 │  │  ┌─────────────────────┐  ┌─────────────────────────┐   │  │
 │  │  │  Stream Service     │  │ Frame Analysis Service  │   │  │
-│  │  │  - RTSP to HLS      │  │ - Frame Capture         │   │  │
+│  │  │  - RTSP to HLS      │  │ - Frame Capture (60s)   │   │  │
 │  │  │  - FFmpeg Process   │  │ - Azure OpenAI Call     │   │  │
-│  │  │  - HLS Segments     │  │ - Frame Storage         │   │  │
+│  │  │  - HLS Segments     │  │ - Enhanced AI Prompt    │   │  │
+│  │  │                     │  │ - Frame Storage (Max 10)│   │  │
+│  │  │                     │  │ - Memory Cleanup        │   │  │
 │  │  └─────────────────────┘  └─────────────────────────┘   │  │
 │  └──────────────────────────────────────────────────────────┘  │
 └────┬────────────────────────────────────┬───────────────────────┘
-     │                                    │
      │ FFmpeg                             │ Azure OpenAI API
-     │                                    │
+     │                                    │ (GPT-4o-mini)
      ▼                                    ▼
 ┌──────────────┐                  ┌──────────────────┐
 │ RTSP Camera  │                  │  Azure OpenAI    │
-│   Source     │                  │    GPT-4o        │
+│   Source     │                  │   GPT-4o Vision  │
 └──────────────┘                  └──────────────────┘
 ```
 
@@ -58,21 +65,35 @@ This document describes the architecture of the Lobby Live Stream Agent v2 appli
 
 ### Frontend Components
 
-#### 1. StreamControls Component
+#### LobbyDashboard Component (Main Component)
 **Responsibilities:**
-- Accept RTSP URL input
-- Start/Stop stream buttons
-- Display current status
-- Error handling and display
+- Manage all streaming and frame analysis state
+- Display eye-themed header with gradient logo and pulsing indicator
+- Integrate HLS video player with stability improvements
+- Show prominent countdown timer banner (5XL font, visible from distance)
+- Display frame gallery with modal details
+- Synchronize with backend status every 5 seconds
+- Poll for new frames every 10 seconds
+
+**Key State:**
+- `isStreaming`: Current streaming status
+- `streamUrl`: HLS playlist URL
+- `analyzedFrames`: Array of AI-analyzed frames (max 10)
+- `seconds`: Countdown timer for next capture
+- `modelName`: AI model name from backend .env
+- `selectedFrame`: Currently selected frame for modal display
 
 **Key Features:**
-- Input validation (must start with rtsp://)
-- Disabled state during operations
-- Visual feedback for loading states
+- Eye-themed branding with gradient text and pulsing green indicator
+- Functional setState to prevent HLS player re-initialization
+- Click-to-expand frame modal with full analysis
+- Amber-styled countdown banner with clock animations
+- Real-time status synchronization preventing false indicators
+- RTSP URL input validation
 
-#### 2. LiveStream Component
+#### HLS Video Player Integration
 **Responsibilities:**
-- Display HLS video stream
+- Display live HLS video stream
 - Initialize HLS.js player
 - Handle playback errors
 - Video controls (play, pause, volume, fullscreen)
@@ -82,19 +103,36 @@ This document describes the architecture of the Lobby Live Stream Agent v2 appli
 - Fallback to native HLS for Safari
 - Automatic error recovery
 - Low latency mode enabled
+- **Functional setState prevents unnecessary re-initialization on status polls**
 
-#### 3. AnalyzedFrames Component
+**Stability Fix:**
+```javascript
+// Prevents HLS player re-init when streamUrl hasn't changed
+setStreamUrl(prevUrl => prevUrl === newUrl ? prevUrl : newUrl)
+```
+
+#### Frame Gallery with Modal
 **Responsibilities:**
-- Fetch analyzed frames from backend
-- Display frames in responsive grid
-- Show timestamps and AI analysis
+- Display analyzed frames in responsive grid
+- Show timestamps and AI captions
+- Open modal on frame click
 - Auto-refresh every 10 seconds
 
 **Features:**
+- Responsive grid layout (2-4 columns based on screen size)
 - Manual refresh button
-- Responsive grid layout
 - Loading states
 - Error handling
+- **Click to open full frame detail modal**
+
+**Modal Details:**
+- Full-screen overlay with backdrop
+- Large frame image display
+- Complete scene description
+- People count breakdown (near doors, at reception, other areas)
+- Witty AI summary
+- Timestamp with full formatting
+- Close via X button or background click
 
 ### Backend Services
 
@@ -103,6 +141,7 @@ This document describes the architecture of the Lobby Live Stream Agent v2 appli
 - Convert RTSP to HLS using FFmpeg
 - Manage FFmpeg process lifecycle
 - Generate HLS playlist and segments
+- Auto-cleanup old segments during streaming
 - Stream status tracking
 
 **FFmpeg Configuration:**
@@ -110,44 +149,82 @@ This document describes the architecture of the Lobby Live Stream Agent v2 appli
 ffmpeg [
   '-rtsp_transport', 'tcp',      // TCP transport for reliability
   '-i', rtspUrl,                 // Input RTSP stream
-  '-c:v', 'copy',                // Copy video codec (no re-encoding)
+  '-c:v', 'libx264',             // H.264 codec for browser compatibility
+  '-preset', 'ultrafast',        // Fast encoding
+  '-tune', 'zerolatency',        // Minimize latency
   '-c:a', 'aac',                 // Convert audio to AAC
   '-f', 'hls',                   // HLS output format
   '-hls_time', '2',              // 2-second segments
-  '-hls_list_size', '3',         // Keep 3 segments
-  '-hls_flags', 'delete_segments' // Auto-delete old segments
+  '-hls_list_size', '10',        // Keep 10 segments (~20 seconds)
+  '-hls_flags', 'delete_segments+append_list', // Auto-delete old segments
+  '-hls_allow_cache', '0',       // Disable caching for live streaming
+  '-hls_segment_filename', 'segment%d.ts'
 ]
 ```
 
+**HLS Segment Management:**
+- Creates `.ts` video segment files in `backend/stream/` directory
+- Each segment is ~2 seconds of video (~200KB-500KB depending on quality)
+- Keeps only last 10 segments in playlist (rolling buffer)
+- When segment #11 is created, segment #1 is automatically deleted
+- Maximum 10-15 `.ts` files exist at any time during active streaming
+- Segments remain after stream stops (reused on next start)
+- Browser plays segments sequentially by reading `stream.m3u8` playlist
+
 #### 2. Frame Analysis Service (frameAnalysisService.js)
 **Responsibilities:**
-- Capture frames from RTSP stream
-- Send frames to Azure OpenAI
-- Store analyzed frames
-- Manage frame retention (keep last 20)
+- Capture frames from RTSP stream every 60 seconds
+- Send frames to Azure OpenAI GPT-4o Vision
+- Store analyzed frames with memory management
+- Manage frame retention (keep last 10 frames)
+- Provide deployment model name to frontend
 
 **Frame Capture Process:**
 1. Every 60 seconds, spawn FFmpeg to capture one frame
 2. Save frame as JPEG in captures directory
 3. Read frame and encode to base64
-4. Send to Azure OpenAI GPT-4o with vision prompt
+4. Send to Azure OpenAI GPT-4o Vision with enhanced prompt
 5. Store frame metadata and analysis
-6. Clean up old frames (keep max 20)
+6. Clean up old frames (keep max 10, delete from disk with fs.unlinkSync)
 
 **Azure OpenAI Integration:**
 ```javascript
 {
-  model: 'gpt-4o',
+  model: 'gpt-4o-mini', // Or gpt-4o from .env
   messages: [{
     role: 'user',
     content: [
-      { type: 'text', text: 'Analyze this surveillance frame...' },
-      { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,...' }}
+      { 
+        type: 'text', 
+        text: `Analyze this lobby surveillance frame...
+               CRITICAL COUNTING INSTRUCTIONS - READ CAREFULLY:
+               - Scan ENTIRE image systematically
+               - Count EVERY person visible
+               - DO NOT default to 0 if people exist
+               - Be specific about locations
+               
+               CAPTION CREATIVITY:
+               - AVOID starting with "In this lobby..."
+               - FOCUS on what's ACTUALLY HAPPENING
+               - Be witty, observant, context-specific`
+      },
+      { 
+        type: 'image_url', 
+        image_url: { url: 'data:image/jpeg;base64,...' }
+      }
     ]
   }],
-  max_tokens: 500
+  max_tokens: 500,
+  temperature: 0.3  // Reduced for consistency
 }
 ```
+
+**Enhanced AI Prompt Features:**
+- Explicit person counting instructions
+- Multi-step scanning methodology
+- Negative instructions (what NOT to do)
+- Caption creativity guidelines
+- Dynamic, context-specific captions
 
 ## Data Flow
 
@@ -172,12 +249,25 @@ ffmpeg [
 3. FFmpeg captures single frame from RTSP
 4. Frame saved to captures/ directory
 5. Frame encoded to base64
-6. Sent to Azure OpenAI with vision prompt
-7. AI analysis received
+6. Sent to Azure OpenAI with enhanced vision prompt
+7. AI analysis received (people count + witty caption)
 8. Frame metadata + analysis stored in memory
-9. Old frames cleaned up (keep last 20)
-10. Frontend polls and retrieves new frame
-11. AnalyzedFrames component displays frame + analysis
+9. Old frames cleaned up (keep last 10, delete from disk)
+10. Frontend polls and retrieves new frame (every 10s)
+11. LobbyDashboard displays frame in gallery
+12. User can click frame to open detail modal
+```
+
+### Status Synchronization Flow
+```
+1. Frontend timer triggers (every 5 seconds)
+2. fetchStreamStatus() calls GET /api/stream/status
+3. Backend returns: streaming status, capture status, model name
+4. Frontend updates state using functional setState
+5. Prevents HLS player re-initialization (streamUrl comparison)
+6. Updates countdown timer, model name display
+7. If backend unreachable, sets isStreaming to false
+8. UI reflects accurate backend state at all times
 ```
 
 ### Stream Stop Flow
@@ -193,28 +283,102 @@ ffmpeg [
 
 ## Key Design Decisions
 
-### 1. Non-Interfering Architecture
+### 1. JSX over TypeScript (.tsx)
+**Problem**: Need balance between type safety and development speed
+**Solution**: Use JavaScript with JSX instead of TypeScript
+**Benefits**: 
+- Faster development without type definitions
+- Easier for beginners to understand and modify
+- More flexibility during prototyping
+- Fewer build errors to debug
+**Trade-off**: Less type checking (acceptable for this project size)
+
+### 2. Non-Interfering Architecture
 **Problem**: Frame capture shouldn't affect live stream quality
 **Solution**: Backend captures directly from RTSP source, independent of browser stream
 **Benefit**: Live stream and frame capture are completely decoupled
 
-### 2. RTSP to HLS Conversion
+### 3. RTSP to HLS Conversion
 **Problem**: Browsers cannot play RTSP directly
 **Solution**: Use FFmpeg to convert RTSP to HLS on-the-fly
 **Benefit**: Browser-compatible streaming with broad device support
 
-### 3. Server-Side Frame Analysis
+### 4. Server-Side Frame Analysis
 **Problem**: Can't send video frames from browser to Azure OpenAI
 **Solution**: Backend captures and analyzes frames directly
 **Benefit**: Security, reliability, and no browser limitations
 
-### 4. Polling for Frame Updates
+### 5. Polling for Frame Updates (10s intervals)
 **Problem**: Need to display new analyzed frames
-**Solution**: Frontend polls backend every 10 seconds
+**Solution**: Frontend polls backend every 10 seconds for new frames
 **Alternative Considered**: WebSocket (more complex, not needed for 60s intervals)
 **Benefit**: Simple, reliable, sufficient for 60-second capture intervals
 
-### 5. In-Memory Frame Storage
+### 6. Status Synchronization (5s intervals)
+**Problem**: UI needs to reflect actual backend streaming state
+**Solution**: Poll backend status every 5 seconds, use functional setState
+**Benefit**: 
+- Prevents false "streaming" indicators
+- Syncs after backend restarts
+- Prevents HLS player re-initialization
+- Accurate countdown timer
+
+### 7. Functional setState for HLS Stability
+**Problem**: Status polling was triggering HLS player re-initialization every 5s
+**Solution**: Use functional setState with URL comparison
+```javascript
+setStreamUrl(prevUrl => prevUrl === newUrl ? prevUrl : newUrl)
+```
+**Benefit**: 
+- Prevents unnecessary state changes
+- HLS player remains stable
+- Video doesn't disappear after 1 second
+
+### 8. Memory Management (Max 10 Frames)
+**Problem**: Unlimited frame storage causes memory issues
+**Solution**: Store maximum 10 frames, delete old files from disk
+**Implementation**:
+- Backend: Array pop() + fs.unlinkSync() for file deletion
+- Frontend: Slice to 10 frames on fetch
+**Benefit**: Application runs indefinitely without memory issues
+
+### 9. HLS Segment Auto-Cleanup
+**Problem**: Video segments could fill up disk space
+**Solution**: FFmpeg configured to auto-delete old segments during streaming
+**Configuration**:
+```javascript
+'-hls_time', '2',                        // 2-second segments
+'-hls_list_size', '10',                  // Keep 10 segments in playlist
+'-hls_flags', 'delete_segments+append_list', // Auto-delete old segments
+```
+**How It Works**:
+- FFmpeg creates segments (segment0.ts, segment1.ts, etc.)
+- Playlist keeps only last 10 segments (~20 seconds of video)
+- When segment falls out of playlist, FFmpeg deletes the .ts file
+- Maximum 10-15 files exist at any time during streaming
+**Benefit**: Streaming can run indefinitely without filling disk
+**Note**: After stopping stream, segments remain until next stream (reuses folder)
+
+### 9. Enhanced AI Prompt Engineering
+**Problem**: AI was counting 0 people when people were visible
+**Solution**: Add explicit counting instructions and negative guidelines
+**Features**:
+- Multi-step scanning instructions
+- Explicit "DO NOT default to 0" command
+- Caption creativity guidelines
+- Temperature reduced to 0.3
+**Benefit**: Accurate people counting and dynamic, witty captions
+
+### 10. Unified Dashboard Component
+**Problem**: Managing multiple separate components adds complexity
+**Solution**: Single LobbyDashboard component with integrated features
+**Benefit**: 
+- Easier state management
+- Better component communication
+- Simpler codebase
+- Consistent UI/UX
+
+### 11. In-Memory Frame Storage
 **Problem**: Need to store analyzed frames
 **Solution**: Store in service memory (array), persist images to disk
 **Benefit**: Fast access, automatic cleanup, simple implementation

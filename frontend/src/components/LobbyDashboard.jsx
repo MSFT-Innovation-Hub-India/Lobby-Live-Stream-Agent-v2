@@ -463,8 +463,7 @@ export default function LobbyLiveStreamDashboard() {
             </div>
             <div>
               <div className="text-base font-bold tracking-wide text-slate-100">
-                <span className="bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">AI Eye</span>
-                {" "}Hub Lobby Live
+                <span className="bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">Agent Eye</span>
               </div>
               <div className="text-xs text-slate-400">
                 Real‑time intelligent stream analysis & monitoring

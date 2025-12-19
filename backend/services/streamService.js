@@ -60,16 +60,24 @@ class StreamService {
     
     this.ffmpegProcess = spawn('ffmpeg', [
       '-rtsp_transport', 'tcp',
+      '-fflags', 'nobuffer',
+      '-flags', 'low_delay',
       '-i', this.rtspUrl,
       '-c:v', 'libx264',
       '-preset', 'ultrafast',
       '-tune', 'zerolatency',
+      '-g', '30',
+      '-keyint_min', '30',
+      '-sc_threshold', '0',
+      '-force_key_frames', 'expr:gte(t,n_forced*0.5)', // enforce keyframes at 0.5s boundaries for segmenting
+      '-max_delay', '0',
       '-c:a', 'aac',
       '-b:a', '128k',
       '-f', 'hls',
-      '-hls_time', '2',
-      '-hls_list_size', '10',
-      '-hls_flags', 'delete_segments+append_list',
+      // Short 0.5s segments with a slightly deeper playlist to avoid starvation
+      '-hls_time', '0.5',
+      '-hls_list_size', '6',
+      '-hls_flags', 'delete_segments+append_list+omit_endlist',
       '-hls_allow_cache', '0',
       '-hls_segment_filename', path.join(this.streamDir, 'segment%d.ts'),
       hlsPath

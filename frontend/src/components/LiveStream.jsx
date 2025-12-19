@@ -25,6 +25,15 @@ const LiveStream = ({ streamUrl, isStreaming }) => {
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: true,
+        // Tighter live sync window to reduce end-to-end latency when paired with 1s segments
+        liveSyncDurationCount: 1,
+        liveMaxLatencyDurationCount: 5,
+        maxBufferLength: 3,
+        maxMaxBufferLength: 6,
+        backBufferLength: 1,
+        initialLiveManifestSize: 1,
+        maxFragLookUpTolerance: 0.2,
+        nudgeMaxRetry: 3,
       });
 
       hlsRef.current = hls;

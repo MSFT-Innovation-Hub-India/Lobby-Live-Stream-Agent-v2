@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const sharp = require('sharp');
 const { OpenAIClient, AzureKeyCredential } = require('@azure/openai');
+const { DefaultAzureCredential } = require('@azure/identity');
 
 class FrameAnalysisService {
   constructor() {
@@ -22,18 +23,31 @@ class FrameAnalysisService {
       fs.mkdirSync(this.captureDir, { recursive: true });
     }
 
-    // Load system prompt
+    // Load system prompt and scenario config
+    this.promptsDir = path.join(__dirname, '..', 'system-prompts');
     this.promptProfile = process.env.PROMPT_PROFILE || 'hub-lobby-default';
     this.analysisPrompt = this.loadPrompt(this.promptProfile);
+    this.scenarioConfig = this.loadScenarioConfig(this.promptProfile);
 
     // Initialize Azure OpenAI client
     this.openaiClient = null;
     this.deploymentName = process.env.AZURE_OPENAI_DEPLOYMENT_NAME || 'gpt-4o';
-    if (process.env.AZURE_OPENAI_ENDPOINT && process.env.AZURE_OPENAI_API_KEY) {
-      this.openaiClient = new OpenAIClient(
-        process.env.AZURE_OPENAI_ENDPOINT,
-        new AzureKeyCredential(process.env.AZURE_OPENAI_API_KEY)
-      );
+    if (process.env.AZURE_OPENAI_ENDPOINT) {
+      if (process.env.AZURE_OPENAI_API_KEY) {
+        // Use API key if provided
+        this.openaiClient = new OpenAIClient(
+          process.env.AZURE_OPENAI_ENDPOINT,
+          new AzureKeyCredential(process.env.AZURE_OPENAI_API_KEY)
+        );
+        console.log('Azure OpenAI initialized with API key');
+      } else {
+        // Fall back to DefaultAzureCredential (Managed Identity, Azure CLI, etc.)
+        this.openaiClient = new OpenAIClient(
+          process.env.AZURE_OPENAI_ENDPOINT,
+          new DefaultAzureCredential()
+        );
+        console.log('Azure OpenAI initialized with DefaultAzureCredential');
+      }
     }
   }
 
@@ -53,6 +67,65 @@ class FrameAnalysisService {
       console.error(`Error loading prompt file: ${error.message}`);
       return this.getDefaultPrompt();
     }
+  }
+
+  // Load scenario config from JSON file
+  loadScenarioConfig(profile) {
+    const configPath = path.join(this.promptsDir, profile, 'scenario-config.json');
+    try {
+      if (fs.existsSync(configPath)) {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        console.log(`Loaded scenario config: ${config.name}`);
+        return config;
+      }
+    } catch (error) {
+      console.error(`Error loading scenario config: ${error.message}`);
+    }
+    return null;
+  }
+
+  // List all available scenarios
+  getAvailableScenarios() {
+    const scenarios = [];
+    try {
+      const dirs = fs.readdirSync(this.promptsDir, { withFileTypes: true });
+      for (const dir of dirs) {
+        if (dir.isDirectory()) {
+          const config = this.loadScenarioConfig(dir.name);
+          if (config) {
+            scenarios.push({
+              id: config.id,
+              name: config.name,
+              description: config.description,
+              active: dir.name === this.promptProfile
+            });
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error listing scenarios:', error.message);
+    }
+    return scenarios;
+  }
+
+  // Get active scenario config
+  getActiveScenarioConfig() {
+    return this.scenarioConfig;
+  }
+
+  // Switch active scenario
+  switchScenario(scenarioId) {
+    const configPath = path.join(this.promptsDir, scenarioId, 'scenario-config.json');
+    if (!fs.existsSync(configPath)) {
+      return { success: false, message: `Scenario '${scenarioId}' not found` };
+    }
+
+    this.promptProfile = scenarioId;
+    this.analysisPrompt = this.loadPrompt(scenarioId);
+    this.scenarioConfig = this.loadScenarioConfig(scenarioId);
+    this.analyzedFrames = []; // Clear frames from previous scenario
+    console.log(`Switched to scenario: ${this.scenarioConfig?.name || scenarioId}`);
+    return { success: true, message: `Switched to ${this.scenarioConfig?.name || scenarioId}`, config: this.scenarioConfig };
   }
 
   // Fallback default prompt
@@ -199,7 +272,7 @@ class FrameAnalysisService {
   async analyzeFrame(imagePath) {
     if (!this.openaiClient) {
       console.warn('Azure OpenAI client not configured');
-      return 'Azure OpenAI is not configured. Please set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY environment variables.';
+      return 'Azure OpenAI is not configured. Please set AZURE_OPENAI_ENDPOINT (and optionally AZURE_OPENAI_API_KEY) environment variables.';
     }
 
     try {
@@ -278,7 +351,9 @@ class FrameAnalysisService {
       rtspUrl: this.rtspUrl,
       deploymentName: this.deploymentName,
       failedCaptureCount: this.failedCaptureCount,
-      maxFailedCaptures: this.maxFailedCaptures
+      maxFailedCaptures: this.maxFailedCaptures,
+      activeScenario: this.promptProfile,
+      scenarioConfig: this.scenarioConfig
     };
   }
 }

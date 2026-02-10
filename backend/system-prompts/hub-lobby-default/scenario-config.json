@@ -1,0 +1,37 @@
+{
+  "id": "hub-lobby-default",
+  "name": "Innovation Hub Entrance Lobby",
+  "description": "Monitors the Innovation Hub entrance lobby for visitor traffic, reception activity, and door movement.",
+  "metrics": [
+    {
+      "key": "persons_near_doors",
+      "label": "Near Doors",
+      "icon": "DoorOpen",
+      "color": "indigo"
+    },
+    {
+      "key": "persons_at_reception",
+      "label": "At Reception",
+      "icon": "UserCheck",
+      "color": "amber"
+    },
+    {
+      "key": "persons_in_other_areas",
+      "label": "Other Areas",
+      "icon": "Users",
+      "color": "purple"
+    }
+  ],
+  "totalMetric": {
+    "key": "total_persons",
+    "label": "Total Visible",
+    "icon": "Eye",
+    "color": "emerald"
+  },
+  "sceneSections": [
+    { "key": "location", "emoji": "🏢", "title": "Location & Environment" },
+    { "key": "people", "emoji": "👥", "title": "People & Activities" },
+    { "key": "notable", "emoji": "🔍", "title": "Notable Elements" },
+    { "key": "overall", "emoji": "📊", "title": "Overall Status" }
+  ]
+}

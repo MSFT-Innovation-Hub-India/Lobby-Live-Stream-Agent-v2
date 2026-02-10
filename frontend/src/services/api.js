@@ -54,5 +54,35 @@ export const analysisService = {
     } catch (error) {
       throw new Error(error.response?.data?.message || 'Failed to get frame');
     }
+  },
+
+  // Get all available scenarios
+  getScenarios: async () => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/analysis/scenarios`);
+      return response.data;
+    } catch (error) {
+      throw new Error(error.response?.data?.message || 'Failed to get scenarios');
+    }
+  },
+
+  // Get active scenario config
+  getActiveScenario: async () => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/analysis/scenarios/active`);
+      return response.data;
+    } catch (error) {
+      throw new Error(error.response?.data?.message || 'Failed to get active scenario');
+    }
+  },
+
+  // Switch active scenario
+  switchScenario: async (scenarioId) => {
+    try {
+      const response = await axios.post(`${API_BASE_URL}/analysis/scenarios/switch`, { scenarioId });
+      return response.data;
+    } catch (error) {
+      throw new Error(error.response?.data?.message || 'Failed to switch scenario');
+    }
   }
 };

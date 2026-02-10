@@ -21,7 +21,14 @@ import {
   DoorOpen,
   UserCheck,
   Eye,
-  X
+  X,
+  Baby,
+  Heart,
+  Armchair,
+  Layers,
+  Bell,
+  AlertCircle,
+  Mail
 } from "lucide-react";
 import { streamService, analysisService } from '../services/api';
 
@@ -64,6 +71,13 @@ const SectionCard = ({ title, right, children }) => (
   </div>
 );
 
+// ---------- Icon Map ----------
+const ICON_MAP = {
+  DoorOpen, UserCheck, Users, Eye, Baby, Heart, Armchair,
+};
+
+const getIcon = (iconName) => ICON_MAP[iconName] || Eye;
+
 // ---------- Main Component ----------
 export default function LobbyLiveStreamDashboard() {
   const [isStreaming, setIsStreaming] = useState(false);
@@ -78,11 +92,20 @@ export default function LobbyLiveStreamDashboard() {
   const [modelName, setModelName] = useState('GPT-4o');
   const [selectedFrame, setSelectedFrame] = useState(null);
   
+  // Scenario state
+  const [scenarios, setScenarios] = useState([]);
+  const [scenarioConfig, setScenarioConfig] = useState(null);
+  const [switchingScenario, setSwitchingScenario] = useState(false);
+  
   // Analyzed frames state
   const [analyzedFrames, setAnalyzedFrames] = useState([]);
   const [currentFrameIndex, setCurrentFrameIndex] = useState(0);
   const videoRef = useRef(null);
   const hlsRef = useRef(null);
+  
+  // Alert state
+  const [alertMessage, setAlertMessage] = useState(null);
+  const [dismissedAlertFrameId, setDismissedAlertFrameId] = useState(null);
 
   // Initialize HLS player
   useEffect(() => {
@@ -237,6 +260,7 @@ export default function LobbyLiveStreamDashboard() {
   useEffect(() => {
     fetchAnalyzedFrames();
     fetchStreamStatus();
+    fetchScenarios();
     
     // Poll stream status every 5 seconds to stay in sync with backend
     const statusInterval = setInterval(() => {
@@ -245,6 +269,36 @@ export default function LobbyLiveStreamDashboard() {
     
     return () => clearInterval(statusInterval);
   }, []);
+
+  const fetchScenarios = async () => {
+    try {
+      const [scenariosRes, activeRes] = await Promise.all([
+        analysisService.getScenarios(),
+        analysisService.getActiveScenario()
+      ]);
+      if (scenariosRes.scenarios) setScenarios(scenariosRes.scenarios);
+      if (activeRes.config) setScenarioConfig(activeRes.config);
+    } catch (error) {
+      console.error('Error fetching scenarios:', error);
+    }
+  };
+
+  const handleScenarioSwitch = async (scenarioId) => {
+    setSwitchingScenario(true);
+    try {
+      const result = await analysisService.switchScenario(scenarioId);
+      if (result.success) {
+        setScenarioConfig(result.config);
+        setAnalyzedFrames([]);
+        setCurrentFrameIndex(0);
+        await fetchScenarios();
+      }
+    } catch (error) {
+      console.error('Error switching scenario:', error);
+    } finally {
+      setSwitchingScenario(false);
+    }
+  };
 
   const fetchStreamStatus = async () => {
     try {
@@ -352,11 +406,47 @@ export default function LobbyLiveStreamDashboard() {
 
   const analysisData = currentFrame ? parseAnalysis(currentFrame) : null;
   
-  // Extract counts
-  const nearDoorsCount = analysisData?.persons_near_doors ?? 0;
-  const atReceptionCount = analysisData?.persons_at_reception ?? 0;
-  const othersCount = analysisData?.persons_in_other_areas ?? 0;
-  const totalCount = analysisData?.total_persons ?? 0;
+  // Alert detection: check if current analysis triggers an alert
+  useEffect(() => {
+    if (!analysisData || !currentFrame || !scenarioConfig?.alerts?.enabled) return;
+    if (currentFrame.id === dismissedAlertFrameId) return;
+    
+    const triggerKeys = scenarioConfig.alerts.triggerKeys || [];
+    const triggered = triggerKeys.some(key => (analysisData[key] ?? 0) > 0);
+    
+    if (triggered && analysisData.alert_message) {
+      setAlertMessage({
+        frameId: currentFrame.id,
+        message: analysisData.alert_message,
+        title: scenarioConfig.alerts.title || 'Alert',
+        emailNote: scenarioConfig.alerts.emailNote || '',
+        timestamp: currentFrame.timestamp,
+      });
+    }
+  }, [currentFrame?.id, analysisData, scenarioConfig, dismissedAlertFrameId]);
+  
+  const dismissAlert = () => {
+    if (alertMessage) {
+      setDismissedAlertFrameId(alertMessage.frameId);
+    }
+    setAlertMessage(null);
+  };
+  
+  // Dynamic metric extraction based on scenario config
+  const metrics = scenarioConfig?.metrics || [
+    { key: 'persons_near_doors', label: 'Near Doors', icon: 'DoorOpen', color: 'indigo' },
+    { key: 'persons_at_reception', label: 'At Reception', icon: 'UserCheck', color: 'amber' },
+    { key: 'persons_in_other_areas', label: 'Other Areas', icon: 'Users', color: 'purple' },
+  ];
+  const totalMetric = scenarioConfig?.totalMetric || { key: 'total_persons', label: 'Total Visible', icon: 'Eye', color: 'emerald' };
+  const sceneSections = scenarioConfig?.sceneSections || [
+    { key: 'location', emoji: '🏢', title: 'Location & Environment' },
+    { key: 'people', emoji: '👥', title: 'People & Activities' },
+    { key: 'notable', emoji: '🔍', title: 'Notable Elements' },
+    { key: 'overall', emoji: '📊', title: 'Overall Status' },
+  ];
+  
+  const totalCount = analysisData?.[totalMetric.key] ?? 0;
 
   // Extract catchy title
   const extractCatchyTitle = (analysis) => {
@@ -380,41 +470,25 @@ export default function LobbyLiveStreamDashboard() {
 
   const catchyTitle = currentFrame ? extractCatchyTitle(currentFrame.analysis) : "Awaiting scene analysis...";
 
-  // Extract analysis sections
+  // Extract analysis sections dynamically based on scenario config
   const extractSections = (analysis) => {
     if (!analysis) return null;
     
-    // Get the scene description from parsed JSON or raw text
     const parsed = typeof analysis === 'object' ? analysis : { raw: analysis };
     const sceneText = parsed.scene_description || parsed.raw || '';
     
-    console.log('Extracting sections from:', sceneText.substring(0, 200));
-    
     if (!sceneText) return null;
     
-    // Decode HTML entities if needed
     const decodedText = sceneText.replace(/\\u003c/g, '<').replace(/\\u003e/g, '>').replace(/\\u0026/g, '&').replace(/\\u0027/g, "'");
     
-    const sections = {
-      location: '',
-      people: '',
-      notable: '',
-      overall: ''
-    };
-
-    // Extract sections using emoji markers and headers
-    const locationMatch = decodedText.match(/\*\*🏢 Location & Environment[:\*]*\s*[\r\n]+(.*?)(?=\*\*|$)/s);
-    const peopleMatch = decodedText.match(/\*\*👥 People & Activities[:\*]*\s*[\r\n]+(.*?)(?=\*\*|$)/s);
-    const notableMatch = decodedText.match(/\*\*🔍 Notable Elements[:\*]*\s*[\r\n]+(.*?)(?=\*\*|$)/s);
-    const overallMatch = decodedText.match(/\*\*📊 Overall Status[:\*]*\s*[\r\n]+(.*?)(?=\*\*|$)/s);
-
-    if (locationMatch) sections.location = locationMatch[1].trim();
-    if (peopleMatch) sections.people = peopleMatch[1].trim();
-    if (notableMatch) sections.notable = notableMatch[1].trim();
-    if (overallMatch) sections.overall = overallMatch[1].trim();
-
-    console.log('Extracted sections:', sections);
-    return sections;
+    const result = {};
+    for (const section of sceneSections) {
+      const regex = new RegExp(`\\*\\*${section.emoji}\\s*${section.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[:\\*]*\\s*[\\r\\n]+(.*?)(?=\\*\\*|$)`, 's');
+      const match = decodedText.match(regex);
+      if (match) result[section.key] = match[1].trim();
+    }
+    
+    return Object.keys(result).length > 0 ? result : null;
   };
 
   const sections = analysisData ? extractSections(analysisData) : null;
@@ -443,9 +517,8 @@ export default function LobbyLiveStreamDashboard() {
       timestamp,
       imageUrl: imageUrl,
       tags: [
-        `${analysis?.total_persons ?? 0} people`,
-        `Near Doors: ${analysis?.persons_near_doors ?? 0}`,
-        `At Reception: ${analysis?.persons_at_reception ?? 0}`
+        `${analysis?.[totalMetric.key] ?? 0} people`,
+        ...metrics.map(m => `${m.label}: ${analysis?.[m.key] ?? 0}`)
       ],
       summary: extractCatchyTitle(frame.analysis)
     };
@@ -677,47 +750,64 @@ export default function LobbyLiveStreamDashboard() {
               ))}
             </div>
 
+            {/* Scenario Selector */}
+            {scenarios.length > 1 && (
+              <div className="mt-4">
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-300 mb-3 flex items-center gap-2">
+                  <Layers className="h-4 w-4" /> Scenario
+                </div>
+                <div className="space-y-2">
+                  {scenarios.map((s) => (
+                    <button
+                      key={s.id}
+                      onClick={() => handleScenarioSwitch(s.id)}
+                      disabled={switchingScenario || s.active}
+                      className={`w-full text-left rounded-xl border p-3 text-xs transition-all ${
+                        s.active
+                          ? 'border-indigo-500/50 bg-indigo-500/20 text-indigo-200'
+                          : 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'
+                      } disabled:cursor-not-allowed`}
+                    >
+                      <div className="font-medium">{s.name}</div>
+                      <div className="text-[10px] mt-1 opacity-70">{s.description}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Live People Count */}
             <div className="mt-4 space-y-3">
               <div className="text-xs font-semibold uppercase tracking-wide text-slate-300 mb-3 flex items-center gap-2">
                 <Users2 className="h-4 w-4" /> Live People Count
               </div>
               
-              <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/10 p-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-slate-300">
-                    <DoorOpen className="h-4 w-4" />
-                    <span className="text-xs">Near Doors</span>
+              {metrics.map((m) => {
+                const IconComp = getIcon(m.icon);
+                const colorMap = {
+                  indigo: { border: 'border-indigo-500/30', bg: 'bg-indigo-500/10', text: 'text-indigo-300' },
+                  amber: { border: 'border-amber-500/30', bg: 'bg-amber-500/10', text: 'text-amber-300' },
+                  purple: { border: 'border-purple-500/30', bg: 'bg-purple-500/10', text: 'text-purple-300' },
+                };
+                const c = colorMap[m.color] || colorMap.indigo;
+                return (
+                  <div key={m.key} className={`rounded-xl ${c.border} ${c.bg} p-3`}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-slate-300">
+                        <IconComp className="h-4 w-4" />
+                        <span className="text-xs">{m.label}</span>
+                      </div>
+                      <span className={`text-2xl font-bold ${c.text}`}>{analysisData?.[m.key] ?? 0}</span>
+                    </div>
                   </div>
-                  <span className="text-2xl font-bold text-indigo-300">{nearDoorsCount}</span>
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-slate-300">
-                    <UserCheck className="h-4 w-4" />
-                    <span className="text-xs">At Reception</span>
-                  </div>
-                  <span className="text-2xl font-bold text-amber-300">{atReceptionCount}</span>
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-purple-500/30 bg-purple-500/10 p-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-slate-300">
-                    <Users className="h-4 w-4" />
-                    <span className="text-xs">Other Areas</span>
-                  </div>
-                  <span className="text-2xl font-bold text-purple-300">{othersCount}</span>
-                </div>
-              </div>
+                );
+              })}
 
               <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-slate-300">
-                    <Eye className="h-4 w-4" />
-                    <span className="text-xs font-semibold">Total Visible</span>
+                    {(() => { const TotalIcon = getIcon(totalMetric.icon); return <TotalIcon className="h-4 w-4" />; })()}
+                    <span className="text-xs font-semibold">{totalMetric.label}</span>
                   </div>
                   <span className="text-3xl font-bold text-emerald-300">{totalCount}</span>
                 </div>
@@ -771,30 +861,12 @@ export default function LobbyLiveStreamDashboard() {
               }
             >
               <div className="space-y-4 text-sm leading-relaxed text-slate-300">
-                {sections.location && (
-                  <div>
-                    <div className="mb-1 font-medium text-slate-200">Location & Environment</div>
-                    <p className="text-slate-300/90">{sections.location}</p>
+                {sceneSections.map((s) => sections[s.key] ? (
+                  <div key={s.key}>
+                    <div className="mb-1 font-medium text-slate-200">{s.title}</div>
+                    <p className="text-slate-300/90">{sections[s.key]}</p>
                   </div>
-                )}
-                {sections.people && (
-                  <div>
-                    <div className="mb-1 font-medium text-slate-200">People & Activities</div>
-                    <p className="text-slate-300/90">{sections.people}</p>
-                  </div>
-                )}
-                {sections.notable && (
-                  <div>
-                    <div className="mb-1 font-medium text-slate-200">Notable Elements</div>
-                    <p className="text-slate-300/90">{sections.notable}</p>
-                  </div>
-                )}
-                {sections.overall && (
-                  <div>
-                    <div className="mb-1 font-medium text-slate-200">Overall Context</div>
-                    <p className="text-slate-300/90">{sections.overall}</p>
-                  </div>
-                )}
+                ) : null)}
               </div>
             </SectionCard>
           )}
@@ -828,6 +900,67 @@ export default function LobbyLiveStreamDashboard() {
           </button>
         </div>
       </div>
+
+      {/* Alert Popup */}
+      {alertMessage && (
+        <div 
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+          onClick={dismissAlert}
+        >
+          <div 
+            className="relative w-full max-w-lg rounded-2xl border-2 border-amber-500/50 bg-slate-900 shadow-2xl shadow-amber-500/20 animate-[pulse_2s_ease-in-out_1]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Alert Header */}
+            <div className="flex items-center gap-3 border-b border-amber-500/30 bg-gradient-to-r from-amber-600/30 via-amber-500/20 to-transparent px-6 py-4 rounded-t-2xl">
+              <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-amber-500/30">
+                <Bell className="h-6 w-6 text-amber-300 animate-bounce" />
+                <div className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-red-500 animate-ping"></div>
+                <div className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-red-500"></div>
+              </div>
+              <div className="flex-1">
+                <h2 className="text-lg font-bold text-amber-200">{alertMessage.title}</h2>
+                <p className="text-xs text-amber-300/70">
+                  {new Date(alertMessage.timestamp).toLocaleString()}
+                </p>
+              </div>
+              <button
+                onClick={dismissAlert}
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-slate-400 transition-colors hover:bg-white/10 hover:text-slate-200"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Alert Body */}
+            <div className="px-6 py-5 space-y-4">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+                <p className="text-sm leading-relaxed text-slate-200">
+                  {alertMessage.message}
+                </p>
+              </div>
+
+              {alertMessage.emailNote && (
+                <div className="flex items-center gap-2 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-4 py-3">
+                  <Mail className="h-4 w-4 text-indigo-400 shrink-0" />
+                  <p className="text-xs text-indigo-300">{alertMessage.emailNote}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Alert Footer */}
+            <div className="border-t border-white/10 px-6 py-4 rounded-b-2xl">
+              <button
+                onClick={dismissAlert}
+                className="w-full rounded-xl bg-gradient-to-r from-amber-600 to-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-amber-500/20 transition-all hover:from-amber-500 hover:to-amber-400 hover:shadow-amber-500/30"
+              >
+                Acknowledge &amp; Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Frame Detail Modal */}
       {selectedFrame && (
@@ -895,52 +1028,39 @@ export default function LobbyLiveStreamDashboard() {
                   
                   {(() => {
                     const analysis = parseAnalysis(selectedFrame);
+                    const colorMap = {
+                      indigo: { border: 'border-indigo-500/30', bg: 'bg-indigo-500/10', text: 'text-indigo-300' },
+                      amber: { border: 'border-amber-500/30', bg: 'bg-amber-500/10', text: 'text-amber-300' },
+                      purple: { border: 'border-purple-500/30', bg: 'bg-purple-500/10', text: 'text-purple-300' },
+                    };
                     return (
                       <>
-                        <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/10 p-4">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2 text-slate-300">
-                              <DoorOpen className="h-4 w-4" />
-                              <span className="text-sm">Near Doors</span>
+                        {metrics.map((m) => {
+                          const IconComp = getIcon(m.icon);
+                          const c = colorMap[m.color] || colorMap.indigo;
+                          return (
+                            <div key={m.key} className={`rounded-xl ${c.border} ${c.bg} p-4`}>
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2 text-slate-300">
+                                  <IconComp className="h-4 w-4" />
+                                  <span className="text-sm">{m.label}</span>
+                                </div>
+                                <span className={`text-3xl font-bold ${c.text}`}>
+                                  {analysis?.[m.key] ?? 0}
+                                </span>
+                              </div>
                             </div>
-                            <span className="text-3xl font-bold text-indigo-300">
-                              {analysis?.persons_near_doors ?? 0}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2 text-slate-300">
-                              <UserCheck className="h-4 w-4" />
-                              <span className="text-sm">At Reception</span>
-                            </div>
-                            <span className="text-3xl font-bold text-amber-300">
-                              {analysis?.persons_at_reception ?? 0}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="rounded-xl border border-purple-500/30 bg-purple-500/10 p-4">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2 text-slate-300">
-                              <Users className="h-4 w-4" />
-                              <span className="text-sm">Other Areas</span>
-                            </div>
-                            <span className="text-3xl font-bold text-purple-300">
-                              {analysis?.persons_in_other_areas ?? 0}
-                            </span>
-                          </div>
-                        </div>
+                          );
+                        })}
 
                         <div className="rounded-xl border-2 border-emerald-500/40 bg-gradient-to-br from-emerald-500/20 to-emerald-500/10 p-4">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2 text-slate-200">
-                              <Eye className="h-5 w-5" />
-                              <span className="text-sm font-semibold">Total Visible</span>
+                              {(() => { const TotalIcon = getIcon(totalMetric.icon); return <TotalIcon className="h-5 w-5" />; })()}
+                              <span className="text-sm font-semibold">{totalMetric.label}</span>
                             </div>
                             <span className="text-4xl font-bold text-emerald-300">
-                              {analysis?.total_persons ?? 0}
+                              {analysis?.[totalMetric.key] ?? 0}
                             </span>
                           </div>
                         </div>
@@ -980,38 +1100,20 @@ export default function LobbyLiveStreamDashboard() {
 
               {/* Detailed Scene Analysis */}
               {(() => {
-                const sections = extractSections(selectedFrame.analysis);
-                if (sections) {
+                const frameSections = extractSections(selectedFrame.analysis);
+                if (frameSections) {
                   return (
                     <div className="rounded-xl border border-white/10 bg-white/5 p-5">
                       <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-200 flex items-center gap-2">
                         <AlertTriangle className="h-4 w-4 text-indigo-400" /> Detailed Scene Analysis
                       </h3>
                       <div className="space-y-4 text-sm leading-relaxed text-slate-300">
-                        {sections.location && (
-                          <div className="pb-4 border-b border-white/10">
-                            <div className="mb-2 font-medium text-slate-200">🏢 Location & Environment</div>
-                            <p className="text-slate-300/90">{sections.location}</p>
+                        {sceneSections.map((s, idx) => frameSections[s.key] ? (
+                          <div key={s.key} className={idx < sceneSections.length - 1 ? 'pb-4 border-b border-white/10' : ''}>
+                            <div className="mb-2 font-medium text-slate-200">{s.emoji} {s.title}</div>
+                            <p className="text-slate-300/90">{frameSections[s.key]}</p>
                           </div>
-                        )}
-                        {sections.people && (
-                          <div className="pb-4 border-b border-white/10">
-                            <div className="mb-2 font-medium text-slate-200">👥 People & Activities</div>
-                            <p className="text-slate-300/90">{sections.people}</p>
-                          </div>
-                        )}
-                        {sections.notable && (
-                          <div className="pb-4 border-b border-white/10">
-                            <div className="mb-2 font-medium text-slate-200">🔍 Notable Elements</div>
-                            <p className="text-slate-300/90">{sections.notable}</p>
-                          </div>
-                        )}
-                        {sections.overall && (
-                          <div>
-                            <div className="mb-2 font-medium text-slate-200">📊 Overall Status</div>
-                            <p className="text-slate-300/90">{sections.overall}</p>
-                          </div>
-                        )}
+                        ) : null)}
                       </div>
                     </div>
                   );

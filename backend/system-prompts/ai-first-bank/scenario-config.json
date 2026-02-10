@@ -1,0 +1,43 @@
+{
+  "id": "ai-first-bank",
+  "name": "AI First Bank Lobby",
+  "description": "Monitors the AI First Bank lobby seating area for scenario detection — children, persons needing assistance, and waiting customers on sofas.",
+  "alerts": {
+    "enabled": true,
+    "triggerKeys": ["children_detected", "persons_needing_assistance"],
+    "title": "Branch Manager Alert",
+    "emailNote": "An email notification has been sent to the Branch Manager."
+  },
+  "metrics": [
+    {
+      "key": "children_detected",
+      "label": "Children Spotted",
+      "icon": "Baby",
+      "color": "indigo"
+    },
+    {
+      "key": "persons_needing_assistance",
+      "label": "Person Needing Assistance",
+      "icon": "Heart",
+      "color": "amber"
+    },
+    {
+      "key": "waiting_customers",
+      "label": "Waiting Customers",
+      "icon": "Armchair",
+      "color": "purple"
+    }
+  ],
+  "totalMetric": {
+    "key": "total_persons",
+    "label": "Total Detected",
+    "icon": "Eye",
+    "color": "emerald"
+  },
+  "sceneSections": [
+    { "key": "location", "emoji": "🏦", "title": "Location & Environment" },
+    { "key": "scenarios", "emoji": "🎯", "title": "Detected Scenarios" },
+    { "key": "notable", "emoji": "🔍", "title": "Notable Observations" },
+    { "key": "overall", "emoji": "📊", "title": "Overall Assessment" }
+  ]
+}

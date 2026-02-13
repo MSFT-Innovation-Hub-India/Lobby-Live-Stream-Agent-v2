@@ -520,7 +520,8 @@ export default function LobbyLiveStreamDashboard() {
         `${analysis?.[totalMetric.key] ?? 0} people`,
         ...metrics.map(m => `${m.label}: ${analysis?.[m.key] ?? 0}`)
       ],
-      summary: extractCatchyTitle(frame.analysis)
+      summary: extractCatchyTitle(frame.analysis),
+      alertMessage: analysis?.alert_message || null
     };
   });
 
@@ -691,6 +692,12 @@ export default function LobbyLiveStreamDashboard() {
                       <Clock className="h-3.5 w-3.5" /> {f.timestamp}
                     </div>
                     <p className="text-sm leading-snug text-slate-200 line-clamp-2">{f.summary}</p>
+                    {f.alertMessage && (
+                      <div className="mt-2 flex items-start gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5">
+                        <Bell className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
+                        <p className="text-xs text-amber-200/90 line-clamp-2">{f.alertMessage}</p>
+                      </div>
+                    )}
                     <div className="mt-2 flex flex-wrap gap-2">
                       {f.tags.map((t, idx) => (
                         <Capsule key={idx} tone="slate">
@@ -1090,6 +1097,37 @@ export default function LobbyLiveStreamDashboard() {
                           <p className="text-base leading-relaxed text-slate-200">
                             {captionMatch[1]}
                           </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+
+              {/* Alert Message */}
+              {(() => {
+                const analysis = parseAnalysis(selectedFrame);
+                if (analysis?.alert_message) {
+                  return (
+                    <div className="rounded-xl border-2 border-amber-500/40 bg-gradient-to-r from-amber-500/15 via-amber-500/10 to-transparent p-5">
+                      <div className="flex items-start gap-3">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-500/20">
+                          <Bell className="h-5 w-5 text-amber-400" />
+                        </div>
+                        <div className="flex-1">
+                          <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-amber-300">
+                            {scenarioConfig?.alerts?.title || 'Alert'}
+                          </h3>
+                          <p className="text-sm leading-relaxed text-slate-200">
+                            {analysis.alert_message}
+                          </p>
+                          {scenarioConfig?.alerts?.emailNote && (
+                            <div className="mt-3 flex items-center gap-2 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-3 py-2">
+                              <Mail className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
+                              <p className="text-xs text-indigo-300">{scenarioConfig.alerts.emailNote}</p>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>

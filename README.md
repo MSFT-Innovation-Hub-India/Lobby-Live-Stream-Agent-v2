@@ -461,83 +461,184 @@ npm run dev
 
 ## 🖥️ VM Deployment (Current Setup)
 
-The application is currently deployed on the GPU VM (`10.11.70.24`) using **tmux** sessions so that the backend and frontend survive SSH disconnects.
+The application is deployed on the GPU VM (`10.11.70.24`) using **tmux** sessions so that the backend and frontend survive SSH disconnects. The Phi-4 model server runs as a **systemd** service that auto-starts on boot.
 
-### Current Running Services
+### 🌐 Open the App
 
-| Service  | tmux Session | URL                        | Port |
-|----------|-------------|----------------------------|------|
-| Phi-4 Model Server | (systemd/manual) | `http://localhost:8000` | 8000 |
-| Backend (Node.js)  | `backend`        | `http://localhost:3001` | 3001 |
-| Frontend (React)   | `frontend`       | `http://10.11.70.24:5173` | 5173 |
+From any machine on the same network, open this URL in your browser:
 
-### Accessing the App
-
-From any machine on the same network, open:
 ```
 http://10.11.70.24:5173
 ```
 
-### Managing tmux Sessions
+### Current Running Services
 
-After SSH-ing into the VM (`ssh azureuser@10.11.70.24`):
+| Service              | How it runs       | URL                           | Port |
+|----------------------|-------------------|-------------------------------|------|
+| Phi-4 Model Server   | systemd service (`phi4-server`) | `http://localhost:8000` | 8000 |
+| Backend (Node.js)    | tmux session (`backend`)        | `http://localhost:3001` | 3001 |
+| Frontend (React)     | tmux session (`frontend`)       | `http://10.11.70.24:5173` | 5173 |
+
+---
+
+### 🔧 Troubleshooting: Step-by-Step
+
+If the app isn't working (no scene analysis, stream not loading, etc.), follow these steps.
+
+#### Step 1: SSH into the VM
+
+From your Windows machine, open a terminal (PowerShell, Windows Terminal, or VS Code terminal) and run:
 
 ```bash
-# List all running sessions
+ssh azureuser@10.11.70.24
+```
+
+Enter your password when prompted. You are now on the VM.
+
+#### Step 2: Check if everything is running
+
+```bash
+# Check tmux sessions (backend & frontend)
 tmux ls
 
-# Attach to backend logs
+# Check model server
+sudo systemctl status phi4-server
+```
+
+You should see:
+- Two tmux sessions: `backend` and `frontend`
+- phi4-server showing `active (running)`
+
+#### Step 3: Check health of each service
+
+```bash
+# Model server health (should return JSON with "status":"ok")
+curl -m 10 http://localhost:8000/health
+
+# Backend health (should return HTML)
+curl -m 5 http://localhost:3001/ | head -1
+
+# Frontend health (should return HTML)
+curl -m 5 http://localhost:5173/ | head -1
+```
+
+---
+
+### 🧠 Fix: Model Server Stuck (Most Common Issue)
+
+**Symptom:** The app shows "Scene analysis in progress" but no results appear, or analysis keeps timing out.
+
+**Cause:** The Phi-4 model server gets stuck processing a request and stops responding.
+
+**Fix — restart the model server:**
+
+```bash
+# Step 1: SSH into the VM
+ssh azureuser@10.11.70.24
+
+# Step 2: Restart the model server
+sudo systemctl restart phi4-server
+
+# Step 3: Wait ~30 seconds for the model to load into GPU memory, then verify
+sleep 30
+curl -m 10 http://localhost:8000/health
+# Should return: {"status":"ok","model":"/storage/models/phi-4-multimodal"}
+
+# Step 4: Restart the backend (to clear timeout state)
+tmux kill-session -t backend
+tmux new-session -d -s backend -c /home/azureuser/Lobby-Live-Stream-Agent-v2/backend 'npm start'
+
+# Step 5: Verify everything is running
+tmux ls
+```
+
+Then refresh the app in your browser (`http://10.11.70.24:5173`) and click "Start Stream" again.
+
+---
+
+### 🔄 Fix: Backend or Frontend Stopped
+
+**Symptom:** The web page doesn't load, or the stream doesn't start.
+
+```bash
+# Step 1: SSH into the VM
+ssh azureuser@10.11.70.24
+
+# Step 2: Check which sessions are running
+tmux ls
+
+# Step 3: Restart whatever is missing
+
+# Restart backend:
+tmux kill-session -t backend 2>/dev/null
+tmux new-session -d -s backend -c /home/azureuser/Lobby-Live-Stream-Agent-v2/backend 'npm start'
+
+# Restart frontend:
+tmux kill-session -t frontend 2>/dev/null
+tmux new-session -d -s frontend -c /home/azureuser/Lobby-Live-Stream-Agent-v2/frontend 'npm run dev -- --host 0.0.0.0'
+
+# Step 4: Verify
+tmux ls
+```
+
+---
+
+### 📋 Viewing Console Logs
+
+To troubleshoot issues by looking at live logs:
+
+```bash
+# SSH into the VM
+ssh azureuser@10.11.70.24
+
+# View backend logs (live)
 tmux attach -t backend
 
-# Attach to frontend logs
+# View frontend logs (live)
 tmux attach -t frontend
 
-# Detach from a session (without stopping it): press Ctrl+B, then D
+# View model server logs
+sudo journalctl -u phi4-server -f
 
-# Scroll through logs inside a session: press Ctrl+B, then [ (use arrow keys, press q to exit)
+# IMPORTANT: To exit a tmux session WITHOUT stopping it:
+#   Press Ctrl+B, then press D
+#
+# To scroll up through log history inside tmux:
+#   Press Ctrl+B, then press [
+#   Use arrow keys or Page Up/Down to scroll
+#   Press q to exit scroll mode
 ```
 
-### Restarting Services
+---
 
-If you need to restart a service:
+### 🔁 Restarting Everything After a VM Reboot
 
 ```bash
-# Kill a specific session
-tmux kill-session -t backend
-tmux kill-session -t frontend
+# SSH into the VM
+ssh azureuser@10.11.70.24
 
-# Restart backend
+# The model server auto-starts on boot (systemd), verify it's running:
+sudo systemctl status phi4-server
+# Wait until it shows "active (running)" — may take ~30 seconds after boot
+
+# Start backend
 tmux new-session -d -s backend -c /home/azureuser/Lobby-Live-Stream-Agent-v2/backend 'npm start'
 
-# Restart frontend (--host 0.0.0.0 exposes it on the network)
+# Start frontend
 tmux new-session -d -s frontend -c /home/azureuser/Lobby-Live-Stream-Agent-v2/frontend 'npm run dev -- --host 0.0.0.0'
 
-# Verify both are running
+# Verify all three services
 tmux ls
-curl -s http://localhost:3001/ | head -1   # should return HTML
-curl -s http://localhost:5173/ | head -1   # should return HTML
-```
-
-### Restarting Everything After a VM Reboot
-
-```bash
-# 1. Start the Phi-4 model server (if not auto-started)
-cd /home/azureuser
-source phi4v/bin/activate
-python serve.py &
-
-# 2. Start backend
-tmux new-session -d -s backend -c /home/azureuser/Lobby-Live-Stream-Agent-v2/backend 'npm start'
-
-# 3. Start frontend
-tmux new-session -d -s frontend -c /home/azureuser/Lobby-Live-Stream-Agent-v2/frontend 'npm run dev -- --host 0.0.0.0'
+curl -m 10 http://localhost:8000/health
+curl -m 5 http://localhost:3001/ | head -1
+curl -m 5 http://localhost:5173/ | head -1
 ```
 
 ---
 
 ### Using the Application
 
-1. Open browser → http://10.11.70.24:5173 (or http://localhost:5173 from the VM)
+1. Open browser → **http://10.11.70.24:5173**
 2. Configure RTSP URL (format: `rtsp://username:password@camera-ip:port/stream`)
 3. Click "Start Stream"
 4. Watch live video and AI analysis appear every 60 seconds

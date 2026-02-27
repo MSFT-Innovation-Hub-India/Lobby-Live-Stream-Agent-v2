@@ -457,9 +457,87 @@ cd frontend
 npm run dev
 ```
 
+---
+
+## 🖥️ VM Deployment (Current Setup)
+
+The application is currently deployed on the GPU VM (`10.11.70.24`) using **tmux** sessions so that the backend and frontend survive SSH disconnects.
+
+### Current Running Services
+
+| Service  | tmux Session | URL                        | Port |
+|----------|-------------|----------------------------|------|
+| Phi-4 Model Server | (systemd/manual) | `http://localhost:8000` | 8000 |
+| Backend (Node.js)  | `backend`        | `http://localhost:3001` | 3001 |
+| Frontend (React)   | `frontend`       | `http://10.11.70.24:5173` | 5173 |
+
+### Accessing the App
+
+From any machine on the same network, open:
+```
+http://10.11.70.24:5173
+```
+
+### Managing tmux Sessions
+
+After SSH-ing into the VM (`ssh azureuser@10.11.70.24`):
+
+```bash
+# List all running sessions
+tmux ls
+
+# Attach to backend logs
+tmux attach -t backend
+
+# Attach to frontend logs
+tmux attach -t frontend
+
+# Detach from a session (without stopping it): press Ctrl+B, then D
+
+# Scroll through logs inside a session: press Ctrl+B, then [ (use arrow keys, press q to exit)
+```
+
+### Restarting Services
+
+If you need to restart a service:
+
+```bash
+# Kill a specific session
+tmux kill-session -t backend
+tmux kill-session -t frontend
+
+# Restart backend
+tmux new-session -d -s backend -c /home/azureuser/Lobby-Live-Stream-Agent-v2/backend 'npm start'
+
+# Restart frontend (--host 0.0.0.0 exposes it on the network)
+tmux new-session -d -s frontend -c /home/azureuser/Lobby-Live-Stream-Agent-v2/frontend 'npm run dev -- --host 0.0.0.0'
+
+# Verify both are running
+tmux ls
+curl -s http://localhost:3001/ | head -1   # should return HTML
+curl -s http://localhost:5173/ | head -1   # should return HTML
+```
+
+### Restarting Everything After a VM Reboot
+
+```bash
+# 1. Start the Phi-4 model server (if not auto-started)
+cd /home/azureuser
+source phi4v/bin/activate
+python serve.py &
+
+# 2. Start backend
+tmux new-session -d -s backend -c /home/azureuser/Lobby-Live-Stream-Agent-v2/backend 'npm start'
+
+# 3. Start frontend
+tmux new-session -d -s frontend -c /home/azureuser/Lobby-Live-Stream-Agent-v2/frontend 'npm run dev -- --host 0.0.0.0'
+```
+
+---
+
 ### Using the Application
 
-1. Open browser → http://localhost:5173
+1. Open browser → http://10.11.70.24:5173 (or http://localhost:5173 from the VM)
 2. Configure RTSP URL (format: `rtsp://username:password@camera-ip:port/stream`)
 3. Click "Start Stream"
 4. Watch live video and AI analysis appear every 60 seconds

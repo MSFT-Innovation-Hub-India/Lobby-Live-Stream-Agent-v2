@@ -556,6 +556,34 @@ Then refresh the app in your browser (`http://10.11.70.24:5173`) and click "Star
 
 ---
 
+### 🌐 Fix: App Breaks When VS Code SSH Session is Closed
+
+**Symptom:** Everything works while VS Code Remote SSH is open, but the moment you close VS Code, the app stops showing the stream, scene analysis disappears, the UI switches to "Cloud LLM" mode, and the phi-4-multimodal option is disabled.
+
+**Cause:** `VITE_API_BASE_URL` in the `.env` file is set to `http://localhost:3001`. When you access the app from a browser on a different machine (e.g., your Windows laptop), the browser tries to reach `localhost:3001` — which is **your laptop**, not the VM. It only works while VS Code is open because VS Code automatically port-forwards port 3001 from the VM to your laptop. When VS Code closes, the port forward dies and the frontend loses connection to the backend.
+
+**Fix:** The `.env` file must use the **VM's actual IP address**, not `localhost`:
+
+```bash
+# WRONG - breaks when VS Code is closed:
+VITE_API_BASE_URL=http://localhost:3001
+
+# CORRECT - works independently of VS Code:
+VITE_API_BASE_URL=http://10.11.70.24:3001
+```
+
+After changing the `.env` file, restart the frontend:
+
+```bash
+ssh azureuser@10.11.70.24
+tmux kill-session -t frontend 2>/dev/null
+tmux new-session -d -s frontend -c /home/azureuser/Lobby-Live-Stream-Agent-v2/frontend 'npm run dev -- --host 0.0.0.0'
+```
+
+> **⚠️ IMPORTANT:** Never use `localhost` in `VITE_API_BASE_URL` or `VITE_DEFAULT_RTSP_URL` when the app is accessed from a different machine than the VM. Always use the VM's IP address (`10.11.70.24`). The `.env.example` file already reflects this.
+
+---
+
 ### 🔄 Fix: Backend or Frontend Stopped
 
 **Symptom:** The web page doesn't load, or the stream doesn't start.

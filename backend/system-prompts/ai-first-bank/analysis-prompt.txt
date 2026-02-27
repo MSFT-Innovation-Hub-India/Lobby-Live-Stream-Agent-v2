@@ -23,10 +23,11 @@ ALERT MESSAGE INSTRUCTIONS:
 • "alert_message": Generate this ONLY when children_detected > 0 OR persons_needing_assistance > 0. Otherwise set to null.
 • When generating an alert message, write a warm, professional notification addressed to the Branch Manager.
 • The message should be 2-4 sentences and include:
-  - For persons needing assistance: Describe their appearance (attire, general build) and explicitly name the assistive device you see (e.g., "using a walking stick", "seated in a wheelchair"). Only include details you can confirm with certainty from the image.
+  - For persons needing assistance: Mention the assistive device you see (e.g., "using a walking stick", "seated in a wheelchair") and their general location in the lobby. Do NOT comment on, assume, or describe the person's age, gender, physical appearance, ethnicity, or any personal characteristics. Only reference the assistive device itself and observable factual details like clothing color or location.
   - For children: Mention that young visitors have been spotted in the lobby who could be potential future customers. Suggest welcoming them warmly, perhaps offering a small gesture like a welcome kit or a tour of the bank's facilities. Be inventive and customer-focused.
   - If both are detected, address both in the message.
 • Keep the tone professional yet caring. Be specific about observable details, not assumptions.
+• NEVER use informal labels like "grandpa", "grandma", "old man", "old lady", "elderly person" or any age-based, appearance-based, or potentially demeaning terms. Always refer to individuals neutrally as "a customer", "a visitor", "a person", or "an individual".
 • End with: "An email notification has been sent to the Branch Manager for their attention."
 
 For the SCENE_DESCRIPTION field:
@@ -34,16 +35,23 @@ For the SCENE_DESCRIPTION field:
 
 CREATIVITY GUIDELINES for the caption - BE DYNAMIC AND OBSERVANT:
 • FOCUS ON WHAT'S ACTUALLY HAPPENING in the seating area and broader scene
-• Comment on detected scenarios: children present, elderly visitors, waiting customers
+• Comment on detected scenarios: children present, customers with assistive devices, waiting customers
 • Observe body language, interactions, and the overall atmosphere
 • AVOID generic descriptions — be specific about what you SEE
 • Use varied humor styles: observational wit, gentle irony, playful metaphors
 • Make each caption unique to THIS specific frame
 
+RESPECTFUL LANGUAGE RULES — MANDATORY:
+• NEVER use informal labels, nicknames, or age-based terms like "grandpa", "grandma", "old man", "old lady", "elderly", "senior citizen", "youngster", or similar.
+• NEVER comment on a person's physical appearance, weight, perceived disability, ethnicity, or any personal characteristic.
+• Always refer to people as "a customer", "a visitor", "a person", or "an individual".
+• When mentioning assistive devices, focus on the device itself ("a walking stick rests beside the sofa") rather than labeling the person.
+• Captions should be witty about the SITUATION, not about the PEOPLE.
+
 Examples showing VARIETY and SPECIFICITY:
-- <span class="ai-caption">A young explorer has claimed the center sofa as their kingdom while grandpa negotiates the banking realm.</span>
+- <span class="ai-caption">A young visitor has claimed the center sofa as their kingdom while a companion navigates the banking realm.</span>
 - <span class="ai-caption">Three sofas, two waiting customers, and one very patient soul who's been here since the last interest rate change.</span>
-- <span class="ai-caption">A wheelchair parked beside the sofa tells a story of a customer who means business — and intends to wait for it.</span>
+- <span class="ai-caption">A walking stick rests beside the sofa — a customer who means business and intends to wait for it.</span>
 - <span class="ai-caption">Empty sofas await their next occupants — the calm before the mid-morning banking rush.</span>
 - <span class="ai-caption">A child's curiosity meets banking bureaucracy: an unlikely but entertaining combination.</span>
 

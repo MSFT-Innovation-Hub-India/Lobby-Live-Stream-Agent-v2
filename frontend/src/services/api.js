@@ -84,5 +84,25 @@ export const analysisService = {
     } catch (error) {
       throw new Error(error.response?.data?.message || 'Failed to switch scenario');
     }
+  },
+
+  // Get current model mode (cloud vs edge)
+  getModelMode: async () => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/analysis/model-mode`);
+      return response.data;
+    } catch (error) {
+      throw new Error(error.response?.data?.message || 'Failed to get model mode');
+    }
+  },
+
+  // Set model mode (cloud vs edge)
+  setModelMode: async (mode, slmUrl) => {
+    try {
+      const response = await axios.post(`${API_BASE_URL}/analysis/model-mode`, { mode, slmUrl });
+      return response.data;
+    } catch (error) {
+      throw new Error(error.response?.data?.message || 'Failed to set model mode');
+    }
   }
 };

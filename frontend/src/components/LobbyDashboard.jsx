@@ -28,7 +28,9 @@ import {
   Layers,
   Bell,
   AlertCircle,
-  Mail
+  Mail,
+  Cloud,
+  Cpu
 } from "lucide-react";
 import { streamService, analysisService } from '../services/api';
 
@@ -96,6 +98,11 @@ export default function LobbyLiveStreamDashboard() {
   const [scenarios, setScenarios] = useState([]);
   const [scenarioConfig, setScenarioConfig] = useState(null);
   const [switchingScenario, setSwitchingScenario] = useState(false);
+  
+  // Model mode state (cloud vs edge)
+  const [modelMode, setModelMode] = useState('cloud');
+  const [slmUrl, setSlmUrl] = useState('');
+  const [switchingModel, setSwitchingModel] = useState(false);
   
   // Analyzed frames state
   const [analyzedFrames, setAnalyzedFrames] = useState([]);
@@ -261,6 +268,7 @@ export default function LobbyLiveStreamDashboard() {
     fetchAnalyzedFrames();
     fetchStreamStatus();
     fetchScenarios();
+    fetchModelMode();
     
     // Poll stream status every 5 seconds to stay in sync with backend
     const statusInterval = setInterval(() => {
@@ -269,6 +277,33 @@ export default function LobbyLiveStreamDashboard() {
     
     return () => clearInterval(statusInterval);
   }, []);
+
+  const fetchModelMode = async () => {
+    try {
+      const result = await analysisService.getModelMode();
+      if (result.success) {
+        setModelMode(result.mode);
+        if (result.slmUrl) setSlmUrl(result.slmUrl);
+      }
+    } catch (error) {
+      console.error('Error fetching model mode:', error);
+    }
+  };
+
+  const handleModelModeSwitch = async (mode) => {
+    setSwitchingModel(true);
+    try {
+      const result = await analysisService.setModelMode(mode, mode === 'edge' ? slmUrl : undefined);
+      if (result.success) {
+        setModelMode(result.mode);
+        if (result.slmUrl) setSlmUrl(result.slmUrl);
+      }
+    } catch (error) {
+      console.error('Error switching model mode:', error);
+    } finally {
+      setSwitchingModel(false);
+    }
+  };
 
   const fetchScenarios = async () => {
     try {
@@ -497,7 +532,7 @@ export default function LobbyLiveStreamDashboard() {
     () => [
       { label: "FPS", value: "30" },
       { label: "Resolution", value: "1280×720" },
-      { label: "Model", value: modelName },
+      { label: "Model", value: modelMode === 'edge' ? 'Phi-4-multimodal' : modelName },
     ],
     [modelName]
   );
@@ -516,10 +551,12 @@ export default function LobbyLiveStreamDashboard() {
       id: frame.id,
       timestamp,
       imageUrl: imageUrl,
-      tags: [
-        `${analysis?.[totalMetric.key] ?? 0} people`,
-        ...metrics.map(m => `${m.label}: ${analysis?.[m.key] ?? 0}`)
-      ],
+      tags: modelMode === 'edge'
+        ? ['Phi-4-multimodal', ...(analysis?.alert_message ? ['Alert Triggered'] : ['No Alert'])]
+        : [
+            `${analysis?.[totalMetric.key] ?? 0} people`,
+            ...metrics.map(m => `${m.label}: ${analysis?.[m.key] ?? 0}`)
+          ],
       summary: extractCatchyTitle(frame.analysis),
       alertMessage: analysis?.alert_message || null
     };
@@ -757,6 +794,51 @@ export default function LobbyLiveStreamDashboard() {
               ))}
             </div>
 
+            {/* Model Mode Selector */}
+            <div className="mt-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-300 mb-3 flex items-center gap-2">
+                <Cpu className="h-4 w-4" /> Inference Engine
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => handleModelModeSwitch('cloud')}
+                  disabled={switchingModel || modelMode === 'cloud'}
+                  className={`flex items-center gap-2 rounded-xl border p-3 text-xs transition-all ${
+                    modelMode === 'cloud'
+                      ? 'border-indigo-500/50 bg-indigo-500/20 text-indigo-200'
+                      : 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'
+                  } disabled:cursor-not-allowed`}
+                >
+                  <Cloud className="h-4 w-4" />
+                  <div className="text-left">
+                    <div className="font-medium">Cloud LLM</div>
+                    <div className="text-[10px] opacity-70">GPT-4o-mini</div>
+                  </div>
+                </button>
+                <button
+                  onClick={() => handleModelModeSwitch('edge')}
+                  disabled={switchingModel || modelMode === 'edge'}
+                  className={`flex items-center gap-2 rounded-xl border p-3 text-xs transition-all ${
+                    modelMode === 'edge'
+                      ? 'border-emerald-500/50 bg-emerald-500/20 text-emerald-200'
+                      : 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'
+                  } disabled:cursor-not-allowed`}
+                >
+                  <Cpu className="h-4 w-4" />
+                  <div className="text-left">
+                    <div className="font-medium">Phi-4-multimodal-instruct</div>
+                    <div className="text-[10px] opacity-70">Local Model</div>
+                  </div>
+                </button>
+              </div>
+              {modelMode === 'edge' && (
+                <div className="mt-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2">
+                  <div className="text-[10px] text-emerald-300/80 mb-1">SLM Endpoint</div>
+                  <div className="text-xs text-emerald-200 font-mono truncate">{slmUrl}</div>
+                </div>
+              )}
+            </div>
+
             {/* Scenario Selector */}
             {scenarios.length > 1 && (
               <div className="mt-4">
@@ -784,9 +866,10 @@ export default function LobbyLiveStreamDashboard() {
             )}
 
             {/* Live People Count */}
-            <div className="mt-4 space-y-3">
+            <div className={`mt-4 space-y-3${modelMode === 'edge' ? ' opacity-40 pointer-events-none' : ''}`}>
               <div className="text-xs font-semibold uppercase tracking-wide text-slate-300 mb-3 flex items-center gap-2">
                 <Users2 className="h-4 w-4" /> Live People Count
+                {modelMode === 'edge' && <span className="text-[10px] font-normal text-slate-500 ml-1">(not available in edge mode)</span>}
               </div>
               
               {metrics.map((m) => {
@@ -804,7 +887,7 @@ export default function LobbyLiveStreamDashboard() {
                         <IconComp className="h-4 w-4" />
                         <span className="text-xs">{m.label}</span>
                       </div>
-                      <span className={`text-2xl font-bold ${c.text}`}>{analysisData?.[m.key] ?? 0}</span>
+                      <span className={`text-2xl font-bold ${modelMode === 'edge' ? 'text-slate-600' : c.text}`}>{modelMode === 'edge' ? 'N/A' : (analysisData?.[m.key] ?? 0)}</span>
                     </div>
                   </div>
                 );
@@ -816,7 +899,7 @@ export default function LobbyLiveStreamDashboard() {
                     {(() => { const TotalIcon = getIcon(totalMetric.icon); return <TotalIcon className="h-4 w-4" />; })()}
                     <span className="text-xs font-semibold">{totalMetric.label}</span>
                   </div>
-                  <span className="text-3xl font-bold text-emerald-300">{totalCount}</span>
+                  <span className={`text-3xl font-bold ${modelMode === 'edge' ? 'text-slate-600' : 'text-emerald-300'}`}>{modelMode === 'edge' ? 'N/A' : totalCount}</span>
                 </div>
               </div>
             </div>
@@ -1028,9 +1111,10 @@ export default function LobbyLiveStreamDashboard() {
                 </div>
 
                 {/* People Count Panel */}
-                <div className="space-y-3">
+                <div className={`space-y-3${modelMode === 'edge' ? ' opacity-40' : ''}`}>
                   <h3 className="text-sm font-semibold text-slate-200 uppercase tracking-wide flex items-center gap-2">
                     <Users2 className="h-4 w-4" /> People Count
+                    {modelMode === 'edge' && <span className="text-[10px] font-normal text-slate-500 ml-1">(N/A in edge mode)</span>}
                   </h3>
                   
                   {(() => {
@@ -1052,8 +1136,8 @@ export default function LobbyLiveStreamDashboard() {
                                   <IconComp className="h-4 w-4" />
                                   <span className="text-sm">{m.label}</span>
                                 </div>
-                                <span className={`text-3xl font-bold ${c.text}`}>
-                                  {analysis?.[m.key] ?? 0}
+                                <span className={`text-3xl font-bold ${modelMode === 'edge' ? 'text-slate-600' : c.text}`}>
+                                  {modelMode === 'edge' ? 'N/A' : (analysis?.[m.key] ?? 0)}
                                 </span>
                               </div>
                             </div>
@@ -1066,8 +1150,8 @@ export default function LobbyLiveStreamDashboard() {
                               {(() => { const TotalIcon = getIcon(totalMetric.icon); return <TotalIcon className="h-5 w-5" />; })()}
                               <span className="text-sm font-semibold">{totalMetric.label}</span>
                             </div>
-                            <span className="text-4xl font-bold text-emerald-300">
-                              {analysis?.[totalMetric.key] ?? 0}
+                            <span className={`text-4xl font-bold ${modelMode === 'edge' ? 'text-slate-600' : 'text-emerald-300'}`}>
+                              {modelMode === 'edge' ? 'N/A' : (analysis?.[totalMetric.key] ?? 0)}
                             </span>
                           </div>
                         </div>
@@ -1166,7 +1250,7 @@ export default function LobbyLiveStreamDashboard() {
                 <div className="flex items-center gap-2 text-xs text-slate-400">
                   <span>Frame ID: {selectedFrame.id}</span>
                   <span>•</span>
-                  <span>Analyzed by {modelName}</span>
+                  <span>Analyzed by {modelMode === 'edge' ? 'Phi-4-multimodal-instruct' : modelName}</span>
                 </div>
                 <button
                   onClick={() => setSelectedFrame(null)}

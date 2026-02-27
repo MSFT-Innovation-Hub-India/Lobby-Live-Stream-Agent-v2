@@ -29,6 +29,14 @@ class FrameAnalysisService {
     this.analysisPrompt = this.loadPrompt(this.promptProfile);
     this.scenarioConfig = this.loadScenarioConfig(this.promptProfile);
 
+    // Model mode: 'cloud' (Azure OpenAI) or 'edge' (local SLM)
+    this.modelMode = process.env.MODEL_MODE || 'cloud';
+    this.slmUrl = process.env.SLM_URL || 'http://10.11.70.24:8000';
+    // Load edge-specific prompt if starting in edge mode
+    if (this.modelMode === 'edge') {
+      this.edgePrompt = this.loadPrompt(this.promptProfile, 'edge');
+    }
+
     // Initialize Azure OpenAI client
     this.openaiClient = null;
     this.deploymentName = process.env.AZURE_OPENAI_DEPLOYMENT_NAME || 'gpt-4o';
@@ -52,13 +60,18 @@ class FrameAnalysisService {
   }
 
   // Load prompt from external file
-  loadPrompt(profile) {
-    const promptPath = path.join(__dirname, '..', 'system-prompts', profile, 'analysis-prompt.txt');
+  loadPrompt(profile, variant) {
+    const suffix = variant ? `-${variant}` : '';
+    const promptPath = path.join(__dirname, '..', 'system-prompts', profile, `analysis-prompt${suffix}.txt`);
     try {
       if (fs.existsSync(promptPath)) {
         const prompt = fs.readFileSync(promptPath, 'utf8');
-        console.log(`Loaded prompt profile: ${profile}`);
+        console.log(`Loaded prompt profile: ${profile}${suffix}`);
         return prompt;
+      } else if (variant) {
+        // Fall back to the default prompt if variant not found
+        console.log(`Edge prompt not found for ${profile}, falling back to default prompt`);
+        return this.loadPrompt(profile);
       } else {
         console.warn(`Prompt file not found at ${promptPath}, using default`);
         return this.getDefaultPrompt();
@@ -123,6 +136,10 @@ class FrameAnalysisService {
     this.promptProfile = scenarioId;
     this.analysisPrompt = this.loadPrompt(scenarioId);
     this.scenarioConfig = this.loadScenarioConfig(scenarioId);
+    // Also reload edge prompt if we're in edge mode
+    if (this.modelMode === 'edge') {
+      this.edgePrompt = this.loadPrompt(scenarioId, 'edge');
+    }
     this.analyzedFrames = []; // Clear frames from previous scenario
     console.log(`Switched to scenario: ${this.scenarioConfig?.name || scenarioId}`);
     return { success: true, message: `Switched to ${this.scenarioConfig?.name || scenarioId}`, config: this.scenarioConfig };
@@ -268,8 +285,301 @@ class FrameAnalysisService {
     });
   }
 
-  // Analyze frame using Azure OpenAI GPT-4o
+  // Get current model mode
+  getModelMode() {
+    return {
+      mode: this.modelMode,
+      slmUrl: this.slmUrl,
+      cloudDeployment: this.deploymentName
+    };
+  }
+
+  // Set model mode
+  setModelMode(mode, slmUrl) {
+    if (mode !== 'cloud' && mode !== 'edge') {
+      return { success: false, message: 'Invalid mode. Use "cloud" or "edge".' };
+    }
+    this.modelMode = mode;
+    if (slmUrl) {
+      this.slmUrl = slmUrl;
+    }
+    // Reload prompt — use edge variant if available when in edge mode
+    if (mode === 'edge') {
+      this.edgePrompt = this.loadPrompt(this.promptProfile, 'edge');
+    }
+    console.log(`Model mode switched to: ${mode}${mode === 'edge' ? ` (${this.slmUrl})` : ` (${this.deploymentName})`}`);
+    return { success: true, mode: this.modelMode, slmUrl: this.slmUrl };
+  }
+
+  // Analyze frame — dispatch to cloud or edge
   async analyzeFrame(imagePath) {
+    if (this.modelMode === 'edge') {
+      return this.analyzeFrameWithSLM(imagePath);
+    }
+    return this.analyzeFrameWithCloud(imagePath);
+  }
+
+  // Analyze frame using local SLM at the edge
+  async analyzeFrameWithSLM(imagePath) {
+    try {
+      const imageBuffer = fs.readFileSync(imagePath);
+      const base64Image = imageBuffer.toString('base64');
+
+      // Use edge-specific prompt if available, otherwise fall back to default
+      const prompt = this.edgePrompt || this.analysisPrompt;
+
+      // Timeout after 60 seconds to prevent hanging
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 60000);
+
+      let response;
+      try {
+        response = await fetch(`${this.slmUrl}/v1/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            messages: [
+              {
+                role: 'user',
+                content: [
+                  {
+                    type: 'image_url',
+                    image_url: { url: `data:image/jpeg;base64,${base64Image}` }
+                  },
+                  {
+                    type: 'text',
+                    text: prompt
+                  }
+                ]
+              }
+            ],
+            max_tokens: 2048,
+            temperature: 0.3
+          })
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
+
+      const data = await response.json();
+      const rawAnalysis = data.response || data.choices?.[0]?.message?.content || JSON.stringify(data);
+      console.log('SLM raw response (first 800 chars):', rawAnalysis.substring(0, 800));
+
+      // Try to parse JSON response
+      try {
+        let jsonStr = rawAnalysis.trim();
+        // Strip markdown code fences if present
+        if (jsonStr.startsWith('```')) {
+          jsonStr = jsonStr.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
+        }
+        const parsed = JSON.parse(jsonStr);
+        console.log('SLM parsed keys:', Object.keys(parsed));
+        console.log('SLM scene_description (first 200 chars):', (parsed.scene_description || '').substring(0, 200));
+        return this.postProcessSLMResponse(parsed, rawAnalysis);
+      } catch (parseError) {
+        console.warn('SLM: Failed to parse JSON, attempting to extract counts from raw text:', parseError.message);
+        // The SLM often returns valid JSON but truncated — extract counts via regex
+        const extracted = this.extractCountsFromRawText(rawAnalysis);
+        console.log('SLM extracted counts:', extracted);
+        return this.postProcessSLMResponse(extracted, rawAnalysis);
+      }
+    } catch (error) {
+      const msg = error.name === 'AbortError' ? 'SLM request timed out after 60s' : error.message;
+      console.error('Error in SLM analysis:', msg);
+      return `Error analyzing frame with edge SLM: ${msg}`;
+    }
+  }
+
+  // Extract numeric counts and scene text from a truncated/invalid JSON response
+  extractCountsFromRawText(rawText) {
+    const extract = (key) => {
+      const match = rawText.match(new RegExp(`"${key}"\\s*:\\s*(\\d+)`));
+      return match ? parseInt(match[1], 10) : 0;
+    };
+
+    // Extract scene_description even from broken JSON
+    let sceneDesc = '';
+    const descMatch = rawText.match(/"scene_description"\s*:\s*"([\s\S]*?)(?:"\s*[,}]|$)/);
+    if (descMatch) {
+      // Unescape JSON string escapes
+      sceneDesc = descMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+    }
+
+    // Extract alert_message (string or null)
+    let alertMsg = null;
+    const alertMatch = rawText.match(/"alert_message"\s*:\s*"([\s\S]*?)(?:"\s*[,}])/);
+    if (alertMatch) {
+      alertMsg = alertMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+    }
+
+    return {
+      timestamp: new Date().toISOString(),
+      persons_near_doors: extract('persons_near_doors'),
+      persons_at_reception: extract('persons_at_reception'),
+      persons_in_other_areas: extract('persons_in_other_areas'),
+      children_detected: extract('children_detected'),
+      persons_needing_assistance: extract('persons_needing_assistance'),
+      waiting_customers: extract('waiting_customers'),
+      total_persons: extract('total_persons'),
+      alert_message: alertMsg,
+      scene_description: sceneDesc || rawText
+    };
+  }
+
+  // Post-process SLM response to match the format the frontend expects.
+  // The SLM often follows the prompt well but may not wrap the caption in HTML.
+  // This method only adds the HTML caption if missing — it preserves the SLM's
+  // own scene_description content (markdown sections, details, etc.).
+  postProcessSLMResponse(parsed, rawAnalysis) {
+    if (!parsed || typeof parsed !== 'object') return parsed;
+
+    const desc = parsed.scene_description || '';
+
+    // If the SLM already produced the HTML caption, nothing to do
+    if (desc.includes('<span class="ai-caption">') || desc.includes("<span class='ai-caption'>")) {
+      return parsed;
+    }
+
+    // Check if the SLM returned structured markdown (section headers like **🏢 ...**)
+    const hasMarkdownSections = /\*\*[🏢🏦👥🎯🔍📊]/.test(desc);
+
+    const total = parsed.total_persons ?? 0;
+
+    // Build an HTML caption from the SLM's text
+    let caption;
+    if (hasMarkdownSections) {
+      // SLM followed the prompt — extract caption from text before the first section header
+      // The prompt asks for a title line like "### A bustling lobby scene..." before sections
+      const preHeader = desc.split(/\*\*/)[0].trim();
+      const cleanPre = preHeader.replace(/^#+\s*/, '').replace(/#+\s*$/, '').trim();
+      if (cleanPre.length > 10) {
+        caption = cleanPre.replace(/[.\s]+$/, '');
+        if (caption.length > 150) caption = caption.substring(0, 147) + '...';
+      }
+    }
+
+    if (!caption) {
+      // Try to extract from the first real sentence
+      const cleanDesc = desc.replace(/\*\*[^*]*\*\*:?\s*/g, '').replace(/^#+\s*/gm, '');
+      const sentences = cleanDesc.split(/(?<=[.!?])\s+/).filter(s => s.trim().length > 10);
+      if (sentences.length > 0) {
+        caption = sentences[0].trim().replace(/[.\s]+$/, '');
+        if (caption.length > 150) caption = caption.substring(0, 147) + '...';
+      }
+    }
+
+    if (!caption) {
+      // Fallback — synthesize from counts
+      const metricParts = [];
+      for (const [k, v] of Object.entries(parsed)) {
+        if (typeof v === 'number' && v > 0 && k !== 'timestamp' && k !== 'total_persons') {
+          metricParts.push(`${v} ${k.replace(/_/g, ' ')}`);
+        }
+      }
+      caption = metricParts.length > 0
+        ? `Edge SLM detects: ${metricParts.join(', ')} (${total} total)`
+        : (total > 0
+          ? `Edge SLM detects ${total} person${total !== 1 ? 's' : ''} in the scene`
+          : 'Edge SLM reports a quiet scene — no people detected');
+    }
+
+    const htmlCaption = `<span class="ai-caption">${caption}.</span>`;
+
+    if (hasMarkdownSections) {
+      // SLM already produced good structured content — just prepend the HTML caption
+      // Remove any leading ### title line since we replaced it with the HTML caption
+      const withoutTitle = desc.replace(/^#+\s*[^\n]*\n*/, '').trim();
+      parsed.scene_description = `${htmlCaption}\n\n${withoutTitle}`;
+    } else if (desc.length > 20) {
+      // SLM returned unstructured text — wrap it in sections using the active scenario
+      const sections = this.scenarioConfig?.sceneSections;
+      if (sections && sections.length > 0) {
+        const sectionLines = sections.map(s =>
+          `**${s.emoji} ${s.title}:**\n${desc}`
+        );
+        // Only use the description in the first content section, summarize rest
+        const countSummary = [];
+        for (const [k, v] of Object.entries(parsed)) {
+          if (typeof v === 'number' && k !== 'timestamp') {
+            countSummary.push(`- ${k.replace(/_/g, ' ')}: **${v}**`);
+          }
+        }
+        const lastSection = sections[sections.length - 1];
+        parsed.scene_description = [
+          htmlCaption,
+          '',
+          `**${sections[0].emoji} ${sections[0].title}:**`,
+          'Analyzed by Edge SLM',
+          '',
+          `**${sections.length > 1 ? sections[1].emoji + ' ' + sections[1].title : '👥 Details'}:**`,
+          desc,
+          '',
+          `**${lastSection.emoji} ${lastSection.title}:**`,
+          countSummary.join('\n') || `Total: ${total}`
+        ].join('\n');
+      } else {
+        parsed.scene_description = `${htmlCaption}\n\n${desc}`;
+      }
+    } else {
+      // Minimal/empty description — build from counts
+      const countSummary = [];
+      for (const [k, v] of Object.entries(parsed)) {
+        if (typeof v === 'number' && k !== 'timestamp') {
+          countSummary.push(`- ${k.replace(/_/g, ' ')}: **${v}**`);
+        }
+      }
+      parsed.scene_description = `${htmlCaption}\n\n${countSummary.join('\n') || 'No detailed analysis available.'}`;
+    }
+
+    // Handle simplified edge prompt response (alert_required boolean instead of counts)
+    // When the edge prompt returns alert_required: true, populate trigger keys so the
+    // frontend alert logic (which checks analysisData[key] > 0) fires correctly.
+    const alertConfig = this.scenarioConfig?.alerts;
+    if (parsed.alert_required === true && alertConfig?.enabled) {
+      const triggerKeys = alertConfig.triggerKeys || [];
+      // Set at least one trigger key to 1 so frontend detects the alert
+      for (const key of triggerKeys) {
+        if ((parsed[key] ?? 0) === 0) {
+          parsed[key] = 1;
+        }
+      }
+      // Auto-generate alert_message if the SLM didn't provide one
+      if (!parsed.alert_message) {
+        parsed.alert_message = `Dear ${alertConfig.title?.replace(' Alert', '') || 'Manager'}, our monitoring system has detected a situation requiring attention in the lobby area. Please arrange for a team member to check and offer any needed assistance. An email notification has been sent to the Branch Manager for their attention.`;
+        console.log('Auto-generated alert_message for edge SLM (alert_required=true)');
+      }
+    } else if (parsed.alert_required === false && alertConfig?.enabled) {
+      // Explicitly no alert — ensure trigger keys are 0
+      const triggerKeys = alertConfig.triggerKeys || [];
+      for (const key of triggerKeys) {
+        if (parsed[key] === undefined) parsed[key] = 0;
+      }
+    }
+
+    // Fallback: if we have counts but no alert_message, check trigger keys
+    if (alertConfig?.enabled && !parsed.alert_message && parsed.alert_required === undefined) {
+      const triggerKeys = alertConfig.triggerKeys || [];
+      const triggered = triggerKeys.filter(key => (parsed[key] ?? 0) > 0);
+      if (triggered.length > 0) {
+        const details = triggered.map(key => {
+          const count = parsed[key];
+          const label = key.replace(/_/g, ' ');
+          return `${count} ${label}`;
+        }).join(' and ');
+        parsed.alert_message = `Dear ${alertConfig.title?.replace(' Alert', '') || 'Manager'}, our monitoring system has detected ${details} in the lobby area. Please arrange for a team member to check on them and offer any needed assistance.`;
+        console.log('Auto-generated alert_message for edge SLM (trigger keys:', triggered.join(', '), ')');
+      }
+    }
+
+    // Mark edge mode so frontend knows counts are not available
+    parsed._edgeMode = true;
+
+    return parsed;
+  }
+
+  // Analyze frame using Azure OpenAI GPT-4o (cloud)
+  async analyzeFrameWithCloud(imagePath) {
     if (!this.openaiClient) {
       console.warn('Azure OpenAI client not configured');
       return 'Azure OpenAI is not configured. Please set AZURE_OPENAI_ENDPOINT (and optionally AZURE_OPENAI_API_KEY) environment variables.';
@@ -349,7 +659,9 @@ class FrameAnalysisService {
       isCapturing: this.isCapturing,
       frameCount: this.analyzedFrames.length,
       rtspUrl: this.rtspUrl,
-      deploymentName: this.deploymentName,
+      deploymentName: this.modelMode === 'edge' ? 'Phi-4-multimodal-instruct' : this.deploymentName,
+      modelMode: this.modelMode,
+      slmUrl: this.slmUrl,
       failedCaptureCount: this.failedCaptureCount,
       maxFailedCaptures: this.maxFailedCaptures,
       activeScenario: this.promptProfile,

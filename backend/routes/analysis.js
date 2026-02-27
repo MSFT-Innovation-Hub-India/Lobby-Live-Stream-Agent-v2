@@ -57,6 +57,32 @@ router.post('/scenarios/switch', (req, res) => {
   }
 });
 
+// Get current model mode (cloud vs edge)
+router.get('/model-mode', (req, res) => {
+  try {
+    const modelMode = frameAnalysisService.getModelMode();
+    res.json({ success: true, ...modelMode });
+  } catch (error) {
+    console.error('Error getting model mode:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Set model mode (cloud vs edge)
+router.post('/model-mode', (req, res) => {
+  try {
+    const { mode, slmUrl } = req.body;
+    if (!mode) {
+      return res.status(400).json({ success: false, message: 'mode is required ("cloud" or "edge")' });
+    }
+    const result = frameAnalysisService.setModelMode(mode, slmUrl);
+    res.json(result);
+  } catch (error) {
+    console.error('Error setting model mode:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // Get a specific analyzed frame
 router.get('/frames/:id', (req, res) => {
   try {

@@ -26,6 +26,7 @@
 - [Troubleshooting](#troubleshooting)
 - [Performance & Memory Management](#performance--memory-management)
 - [Security Best Practices](#security-best-practices)
+- [**Operations Guide (OPERATIONS.md)**](OPERATIONS.md) — Step-by-step runbook for day-to-day management
 
 ---
 
@@ -616,8 +617,7 @@ After changing the `.env` file, restart the frontend:
 
 ```bash
 ssh azureuser@10.11.70.24
-tmux kill-session -t frontend 2>/dev/null
-tmux new-session -d -s frontend -c /home/azureuser/Lobby-Live-Stream-Agent-v2/frontend 'npm run dev -- --host 0.0.0.0'
+systemctl --user restart lobby-frontend
 ```
 
 > **⚠️ IMPORTANT:** Never use `localhost` in `VITE_API_BASE_URL` or `VITE_DEFAULT_RTSP_URL` when the app is accessed from a different machine than the VM. Always use the VM's IP address (`10.11.70.24`). The `.env.example` file already reflects this.

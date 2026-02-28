@@ -25,24 +25,28 @@ Complete feature list and technical capabilities of **AI Eye - Hub Lobby Live St
 ---
 
 ### 2. AI-Powered Frame Analysis ✅
-**Description**: Automatic capture and intelligent analysis of video frames using Azure OpenAI GPT-4o Vision
+**Description**: Automatic capture and intelligent analysis of video frames using **dual-mode AI** — cloud (Azure OpenAI GPT-4o) or edge (vLLM + Phi-4-multimodal-instruct on local GPU)
 
 **Technical Details**:
 - Captures one frame every 60 seconds
 - Independent capture (doesn't affect live stream)
 - Base64 image encoding
-- Azure OpenAI vision API integration
-- GPT-4o or GPT-4o-mini model support
-- Enhanced AI prompt for accurate person counting
-- Temperature set to 0.3 for consistent results
-- Dynamic model name display from backend .env
+- **Edge mode**: vLLM OpenAI-compatible API with Phi-4-multimodal-instruct
+- **Cloud mode**: Azure OpenAI vision API (GPT-4o or GPT-4o-mini)
+- Scenario-based prompt system (`hub-lobby-default`, `ai-first-bank`)
+- Model refusal detection with automatic retry (edge mode)
+- Anti-hallucination guardrails with 90% confidence threshold
+- Temperature 0.7 (edge) / 0.3 (cloud)
+- Dynamic model name display from backend
 
 **User Benefits**:
 - Automatic description of what's happening in the video
 - Intelligent understanding of scenes and activities
 - **Accurate people counting** (near doors, at reception, in other areas)
 - No manual monitoring required
-- Detailed text descriptions with **witty, dynamic captions**
+- Works fully offline in edge mode (no cloud dependency)
+- Scenario-specific analysis (general lobby vs banking security)
+- Anomaly and security alerts (banking scenario)
 
 **Sample Analysis Output**:
 ```json
@@ -97,7 +101,7 @@ Complete feature list and technical capabilities of **AI Eye - Hub Lobby Live St
 ```
 RTSP Camera
     ├─→ FFmpeg Stream → HLS → Browser (Live Video)
-    └─→ FFmpeg Capture → Frame → Azure OpenAI → Analysis
+    └─→ FFmpeg Capture → Frame → AI (vLLM or Azure OpenAI) → Analysis
 ```
 
 **Benefits**:

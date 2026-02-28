@@ -7,8 +7,10 @@ This guide covers deploying the **AI Eye - Hub Lobby Live Stream Agent v2** appl
 - Production server (VM, VPS, or cloud instance)
 - Domain name (optional but recommended)
 - SSL certificate (for HTTPS)
-- Azure OpenAI credentials
 - RTSP camera access
+- **AI Backend** — choose one:
+  - **Edge mode**: NVIDIA GPU with ≥15 GB VRAM, Python 3.11+, vLLM (see [VLLM_DEPLOYMENT.md](VLLM_DEPLOYMENT.md))
+  - **Cloud mode**: Azure OpenAI credentials (GPT-4o or GPT-4o-mini deployment)
 
 ## Deployment Options
 
@@ -16,6 +18,7 @@ This guide covers deploying the **AI Eye - Hub Lobby Live Stream Agent v2** appl
 ### Option 2: Docker Container Deployment
 ### Option 3: Azure App Service Deployment
 ### Option 4: AWS EC2 Deployment
+### Option 5: Azure Stack Edge Deployment (GPU, current setup)
 
 ---
 
@@ -399,10 +402,31 @@ az webapp create --resource-group lobby-stream-rg \
 
 ## Environment Variables (Production)
 
+**Edge Mode (vLLM):**
 ```env
 # Backend .env
 NODE_ENV=production
 PORT=3001
+
+# Model Mode
+MODEL_MODE=edge
+SLM_URL=http://localhost:8000
+VLLM_MODEL=microsoft/Phi-4-multimodal-instruct
+
+# Frame Analysis
+MAX_ANALYZED_FRAMES=10
+FRAME_CAPTURE_INTERVAL=60000
+PROMPT_PROFILE=hub-lobby-default
+```
+
+**Cloud Mode (Azure OpenAI):**
+```env
+# Backend .env
+NODE_ENV=production
+PORT=3001
+
+# Model Mode
+MODEL_MODE=cloud
 
 # Azure OpenAI
 AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
@@ -410,6 +434,14 @@ AZURE_OPENAI_API_KEY=your-production-key
 AZURE_OPENAI_DEPLOYMENT_NAME=gpt-4o
 AZURE_OPENAI_API_VERSION=2024-02-15-preview
 
+# Frame Analysis
+MAX_ANALYZED_FRAMES=10
+FRAME_CAPTURE_INTERVAL=60000
+PROMPT_PROFILE=hub-lobby-default
+```
+
+**Common Variables (both modes):**
+```env
 # Security (optional, implement in code)
 JWT_SECRET=your-secret-key
 ALLOWED_ORIGINS=https://your-domain.com
@@ -491,9 +523,52 @@ curl http://localhost:3001/api/stream/status
 - Increase server RAM
 
 ### Issue: Slow Frame Analysis
-- Check Azure OpenAI API latency
+- **Edge mode**: Check GPU utilization with `nvidia-smi`, restart vLLM if stuck
+- **Cloud mode**: Check Azure OpenAI API latency
 - Consider batch processing
 - Implement queue system
+
+---
+
+## Option 5: Azure Stack Edge Deployment (Current Setup)
+
+This is the current production deployment running on an Azure Stack Edge VM with a Tesla T4 GPU. All services run as **systemd user services** with linger enabled for auto-start on boot.
+
+### Hardware Requirements
+- **GPU**: NVIDIA Tesla T4 (15 GB VRAM) or equivalent
+- **CPU**: 4+ cores (Intel Xeon Silver 4214 or similar)
+- **RAM**: 27 GB+
+- **Storage**: 1 TB+ (model + segments + captures)
+- **OS**: Ubuntu 20.04 LTS
+
+### Setup
+
+See [VLLM_DEPLOYMENT.md](VLLM_DEPLOYMENT.md) for the complete step-by-step guide covering:
+1. Python 3.11 + Miniconda installation
+2. vLLM v0.16+ installation in virtual environment
+3. Phi-4-multimodal-instruct model download
+4. systemd user services for vLLM, backend, and frontend
+5. Linger configuration for persistence across SSH disconnects
+
+### Service Management
+```bash
+# Check all services
+systemctl --user status vllm lobby-backend lobby-frontend
+
+# Restart a service
+systemctl --user restart vllm
+
+# View logs
+journalctl --user -u vllm -f
+journalctl --user -u lobby-backend -f
+```
+
+### Current Service Layout
+| Service | systemd Unit | Port | URL |
+|---------|-------------|------|-----|
+| vLLM (Phi-4-multimodal) | `vllm.service` | 8000 | `http://localhost:8000` |
+| Backend (Node.js) | `lobby-backend.service` | 3001 | `http://localhost:3001` |
+| Frontend (React/Vite) | `lobby-frontend.service` | 5173 | `http://10.11.70.24:5173` |
 
 ---
 

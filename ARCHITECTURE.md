@@ -45,20 +45,22 @@ This document describes the architecture of **AI Eye - Hub Lobby Live Stream Age
 │  │  ┌─────────────────────┐  ┌─────────────────────────┐   │  │
 │  │  │  Stream Service     │  │ Frame Analysis Service  │   │  │
 │  │  │  - RTSP to HLS      │  │ - Frame Capture (60s)   │   │  │
-│  │  │  - FFmpeg Process   │  │ - Azure OpenAI Call     │   │  │
-│  │  │  - HLS Segments     │  │ - Enhanced AI Prompt    │   │  │
-│  │  │                     │  │ - Frame Storage (Max 10)│   │  │
+│  │  │  - FFmpeg Process   │  │ - AI Call (edge/cloud)  │   │  │
+│  │  │  - HLS Segments     │  │ - Scenario Prompts      │   │  │
+│  │  │  - CBR 2500k        │  │ - Refusal Detection     │   │  │
+│  │  │  - GOP 60           │  │ - Frame Storage (Max 10)│   │  │
 │  │  │                     │  │ - Memory Cleanup        │   │  │
 │  │  └─────────────────────┘  └─────────────────────────┘   │  │
 │  └──────────────────────────────────────────────────────────┘  │
-└────┬────────────────────────────────────┬───────────────────────┘
-     │ FFmpeg                             │ Azure OpenAI API
-     │                                    │ (GPT-4o-mini)
-     ▼                                    ▼
-┌──────────────┐                  ┌──────────────────┐
-│ RTSP Camera  │                  │  Azure OpenAI    │
-│   Source     │                  │   GPT-4o Vision  │
-└──────────────┘                  └──────────────────┘
+└────┬────────────────────────────────┬───────────────────────────┘
+     │ FFmpeg                    ┌────┴────┐
+     │                           │         │
+     ▼                           ▼         ▼
+┌──────────────┐          ┌──────────┐  ┌──────────────────┐
+│ RTSP Camera  │          │  vLLM    │  │  Azure OpenAI    │
+│   Source     │          │ Phi-4    │  │   GPT-4o Vision  │
+└──────────────┘          │(Edge GPU)│  │   (Cloud)        │
+                          └──────────┘  └──────────────────┘
 ```
 
 ## Component Details
@@ -80,7 +82,11 @@ This document describes the architecture of **AI Eye - Hub Lobby Live Stream Age
 - `streamUrl`: HLS playlist URL
 - `analyzedFrames`: Array of AI-analyzed frames (max 10)
 - `seconds`: Countdown timer for next capture
-- `modelName`: AI model name from backend .env
+- `modelName`: AI model name from backend (e.g. `microsoft/Phi-4-multimodal-instruct` or `gpt-4o-mini`)
+- `modelMode`: Current inference mode (`edge` or `cloud`)
+- `slmHealthy`: Health status of the edge vLLM server
+- `scenarios`: Available prompt profiles fetched from backend
+- `scenarioConfig`: Currently active scenario configuration
 - `selectedFrame`: Currently selected frame for modal display
 
 **Key Features:**
@@ -102,7 +108,8 @@ This document describes the architecture of **AI Eye - Hub Lobby Live Stream Age
 - Uses HLS.js for HLS playback in browsers
 - Fallback to native HLS for Safari
 - Automatic error recovery
-- Low latency mode enabled
+- Low latency mode disabled for smooth playback
+- Tuned buffer settings: `maxBufferLength: 30`, `maxMaxBufferLength: 60`
 - **Functional setState prevents unnecessary re-initialization on status polls**
 
 **Stability Fix:**
@@ -152,6 +159,10 @@ ffmpeg [
   '-c:v', 'libx264',             // H.264 codec for browser compatibility
   '-preset', 'ultrafast',        // Fast encoding
   '-tune', 'zerolatency',        // Minimize latency
+  '-b:v', '2500k',               // CBR for smooth playback
+  '-maxrate', '2500k',           // Cap bitrate
+  '-bufsize', '5000k',           // Buffer size
+  '-g', '60',                    // GOP size (keyframe every 2s at 30fps)
   '-c:a', 'aac',                 // Convert audio to AAC
   '-f', 'hls',                   // HLS output format
   '-hls_time', '2',              // 2-second segments
@@ -174,57 +185,62 @@ ffmpeg [
 #### 2. Frame Analysis Service (frameAnalysisService.js)
 **Responsibilities:**
 - Capture frames from RTSP stream every 60 seconds
-- Send frames to Azure OpenAI GPT-4o Vision
+- Send frames to AI (vLLM edge or Azure OpenAI cloud, based on `MODEL_MODE`)
+- Load scenario-specific prompts from `system-prompts/` directory
+- Auto-detect JSON vs markdown responses and parse accordingly
+- Detect and retry model refusal errors (edge mode)
 - Store analyzed frames with memory management
 - Manage frame retention (keep last 10 frames)
-- Provide deployment model name to frontend
+- Provide model name and mode to frontend
 
 **Frame Capture Process:**
 1. Every 60 seconds, spawn FFmpeg to capture one frame
 2. Save frame as JPEG in captures directory
 3. Read frame and encode to base64
-4. Send to Azure OpenAI GPT-4o Vision with enhanced prompt
-5. Store frame metadata and analysis
-6. Clean up old frames (keep max 10, delete from disk with fs.unlinkSync)
+4. Load system prompt from `system-prompts/{PROMPT_PROFILE}/analysis-prompt-edge.txt`
+5. **Edge mode**: Send to vLLM API at `SLM_URL/v1/chat/completions`
+6. **Cloud mode**: Send to Azure OpenAI GPT-4o Vision
+7. Auto-detect response format (JSON for banking, markdown for default)
+8. If model returns a refusal, retry once automatically
+9. Store frame metadata and analysis
+10. Clean up old frames (keep max 10, delete from disk with fs.unlinkSync)
 
-**Azure OpenAI Integration:**
+**Edge Mode (vLLM) Integration:**
+```javascript
+// Uses OpenAI-compatible API provided by vLLM
+const response = await axios.post(`${SLM_URL}/v1/chat/completions`, {
+  model: 'microsoft/Phi-4-multimodal-instruct',
+  messages: [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: [
+      { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,...' } },
+      { type: 'text', text: 'Analyze this frame.' }
+    ]}
+  ],
+  max_tokens: 1024,
+  temperature: 0.7
+});
+```
+
+**Cloud Mode (Azure OpenAI) Integration:**
 ```javascript
 {
   model: 'gpt-4o-mini', // Or gpt-4o from .env
-  messages: [{
-    role: 'user',
-    content: [
-      { 
-        type: 'text', 
-        text: `Analyze this lobby surveillance frame...
-               CRITICAL COUNTING INSTRUCTIONS - READ CAREFULLY:
-               - Scan ENTIRE image systematically
-               - Count EVERY person visible
-               - DO NOT default to 0 if people exist
-               - Be specific about locations
-               
-               CAPTION CREATIVITY:
-               - AVOID starting with "In this lobby..."
-               - FOCUS on what's ACTUALLY HAPPENING
-               - Be witty, observant, context-specific`
-      },
-      { 
-        type: 'image_url', 
-        image_url: { url: 'data:image/jpeg;base64,...' }
-      }
-    ]
-  }],
+  messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', ... }] }],
   max_tokens: 500,
-  temperature: 0.3  // Reduced for consistency
+  temperature: 0.3
 }
 ```
 
-**Enhanced AI Prompt Features:**
-- Explicit person counting instructions
-- Multi-step scanning methodology
-- Negative instructions (what NOT to do)
-- Caption creativity guidelines
-- Dynamic, context-specific captions
+**Scenario / Prompt System:**
+- `hub-lobby-default`: General lobby monitoring, expects markdown output
+- `ai-first-bank`: Banking security scenario, expects JSON with people counts, alerts, anomalies
+- Anti-hallucination guardrails: 90% confidence threshold, false-positive warnings for common misidentifications
+
+**Model Refusal Detection:**
+- `isModelRefusal()` checks if response contains patterns like "I'm sorry, as an AI text-based model..."
+- On refusal, automatically retries the frame analysis once
+- Skips frame on double-refusal to avoid infinite loops
 
 ## Data Flow
 
@@ -249,8 +265,8 @@ ffmpeg [
 3. FFmpeg captures single frame from RTSP
 4. Frame saved to captures/ directory
 5. Frame encoded to base64
-6. Sent to Azure OpenAI with enhanced vision prompt
-7. AI analysis received (people count + witty caption)
+6. Sent to AI (vLLM or Azure OpenAI) with scenario-specific prompt
+7. AI analysis received (parsed as JSON or markdown based on scenario)
 8. Frame metadata + analysis stored in memory
 9. Old frames cleaned up (keep last 10, delete from disk)
 10. Frontend polls and retrieves new frame (every 10s)
@@ -359,15 +375,23 @@ setStreamUrl(prevUrl => prevUrl === newUrl ? prevUrl : newUrl)
 **Benefit**: Streaming can run indefinitely without filling disk
 **Note**: After stopping stream, segments remain until next stream (reuses folder)
 
-### 9. Enhanced AI Prompt Engineering
-**Problem**: AI was counting 0 people when people were visible
-**Solution**: Add explicit counting instructions and negative guidelines
-**Features**:
-- Multi-step scanning instructions
-- Explicit "DO NOT default to 0" command
-- Caption creativity guidelines
-- Temperature reduced to 0.3
-**Benefit**: Accurate people counting and dynamic, witty captions
+### 9. Scenario-Based Prompt System
+**Problem**: Different deployment environments need different analysis outputs
+**Solution**: Switchable prompt profiles loaded from `system-prompts/` directory
+**Profiles**:
+- `hub-lobby-default`: General lobby monitoring (markdown output)
+- `ai-first-bank`: Banking security with structured JSON output, alerts, anti-hallucination
+**Benefit**: Single codebase supports multiple use cases
+
+### 10. Model Refusal Detection
+**Problem**: Edge model (Phi-4) sometimes returns text-mode refusal instead of image analysis
+**Solution**: `isModelRefusal()` detects refusal patterns and auto-retries
+**Benefit**: Robust edge inference without manual intervention
+
+### 11. Anti-Hallucination Guardrails
+**Problem**: Edge model hallucinated objects (e.g. walking sticks from plant stems)
+**Solution**: 90% confidence threshold, explicit false-positive warnings in prompts
+**Benefit**: Higher accuracy for security-sensitive scenarios
 
 ### 10. Unified Dashboard Component
 **Problem**: Managing multiple separate components adds complexity
@@ -422,7 +446,8 @@ setStreamUrl(prevUrl => prevUrl === newUrl ? prevUrl : newUrl)
 ### Latency
 - **RTSP to Browser**: 3-5 seconds (HLS segments + network)
 - **Frame Capture**: 1-2 seconds (FFmpeg operation)
-- **AI Analysis**: 3-10 seconds (Azure OpenAI API call)
+- **AI Analysis (Edge/vLLM)**: 5-15 seconds (local GPU inference)
+- **AI Analysis (Cloud/Azure)**: 3-10 seconds (Azure OpenAI API call)
 - **Frontend Update**: 1-10 seconds (polling interval)
 
 ### Resource Usage
@@ -495,8 +520,29 @@ Azure OpenAI: Managed service
        │
        ├─────► RTSP Camera
        │
-       └─────► Azure OpenAI
+       ├─────► vLLM + Phi-4 (Edge, local GPU)
+       │
+       └─────► Azure OpenAI (Cloud)
 ```
+
+### Current Edge Deployment (Azure Stack Edge)
+```
+┌─────────────┐
+│   Browser   │
+└──────┬──────┘
+       │ HTTP
+       ▼
+┌───────────────────────────────────────────────┐
+│  Azure Stack Edge VM (Tesla T4 GPU)           │
+│                                               │
+│  systemd user services:                       │
+│  ┌─────────────┐  ┌────────────┐  ┌────────┐ │
+│  │ vLLM :8000  │  │ Backend    │  │Frontend│ │
+│  │ Phi-4-multi │  │ :3001      │  │ :5173  │ │
+│  └─────────────┘  └────────────┘  └────────┘ │
+└───────────────────────────────────────────────┘
+```
+See [VLLM_DEPLOYMENT.md](VLLM_DEPLOYMENT.md) for full edge setup guide.
 
 ## Error Handling
 

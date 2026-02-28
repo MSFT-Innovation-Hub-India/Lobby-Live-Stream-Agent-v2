@@ -105,7 +105,8 @@ The `/api/stream/status` endpoint now returns:
     "isCapturing": true,
     "frameCount": 5,
     "rtspUrl": "rtsp://...",
-    "deploymentName": "gpt-4o-mini",
+    "deploymentName": "microsoft/Phi-4-multimodal-instruct",
+    "modelMode": "edge",
     "failedCaptureCount": 0,
     "maxFailedCaptures": 5
   }

@@ -20,7 +20,9 @@ Thank you for your interest in contributing! This document provides guidelines a
 - npm v9+
 - FFmpeg
 - Git
-- Azure OpenAI account (optional for AI features)
+- **AI backend** (one of):
+  - NVIDIA GPU + vLLM + Phi-4-multimodal (edge mode)
+  - Azure OpenAI account (cloud mode, optional for AI features)
 
 ### Installation
 ```bash
@@ -86,6 +88,9 @@ frontend/src/
 backend/
 ├── routes/         # Express routes
 ├── services/       # Business logic
+├── system-prompts/ # Scenario-specific AI prompt files
+│   ├── hub-lobby-default/  # Innovation Hub (markdown output)
+│   └── ai-first-bank/     # Banking security (JSON output)
 ├── middleware/     # Express middleware (if added)
 └── utils/          # Utility functions (if added)
 ```
@@ -107,7 +112,8 @@ backend/
 - **Frame modal opens on click**
 - **Countdown timer is visible and accurate**
 - **Status syncs with backend** (test by stopping backend)
-- **Model name displays correctly** (check against .env)
+- **Model name displays correctly** (check against .env — e.g. `microsoft/Phi-4-multimodal-instruct` or `gpt-4o-mini`)
+- **Model mode displays correctly** (edge or cloud)
 - **HLS player doesn't re-initialize** during status polling
 - UI is responsive on mobile/tablet
 - Error handling works correctly

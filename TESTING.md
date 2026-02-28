@@ -4,7 +4,20 @@ This guide helps you test the application functionality.
 
 ## Prerequisites for Testing
 
-Since this application requires an actual RTSP stream and Azure OpenAI credentials, here are options for testing:
+Since this application requires an actual RTSP stream and an AI backend, here are options for testing:
+
+### AI Backend Options
+
+**Edge Mode (vLLM)**:
+- Requires NVIDIA GPU with ≥15 GB VRAM
+- vLLM running with Phi-4-multimodal-instruct
+- Set `MODEL_MODE=edge` in `.env`
+- See [VLLM_DEPLOYMENT.md](VLLM_DEPLOYMENT.md) for setup
+
+**Cloud Mode (Azure OpenAI)**:
+- Requires Azure OpenAI account with GPT-4o deployment
+- Set `MODEL_MODE=cloud` in `.env`
+- Configure Azure credentials in `.env`
 
 ### Option 1: Use a Test RTSP Stream
 
@@ -102,7 +115,7 @@ Expected output:
    - ✅ Live video should start playing within 3-5 seconds
    - ✅ Status should change to "Streaming"
    - ✅ Countdown timer starts at 60 seconds
-   - ✅ Model name appears in header (e.g., "gpt-4o-mini")
+   - ✅ Model name appears in header (e.g., "Phi-4-multimodal" or "gpt-4o-mini")
 
 5. **Wait for Frame Capture**: After 60 seconds, test:
    - ✅ First frame appears in gallery below
@@ -142,16 +155,34 @@ Expected output:
     - ✅ Status should change to "Stopped"
     - ✅ Captured frames remain visible
 
-## Testing Without Azure OpenAI
+## Testing Without AI
 
-If you don't have Azure OpenAI credentials configured, the application will still work but frame analysis will show an error message. The core streaming functionality will work perfectly.
+If you don't have Azure OpenAI credentials or a GPU for vLLM, the application will still work but frame analysis will show an error message. The core streaming functionality will work perfectly.
 
 To test streaming without AI analysis:
 
-1. Don't configure the `.env` file (or leave Azure fields empty)
+1. Don't configure AI settings in `.env` (leave `MODEL_MODE`, Azure fields, and vLLM fields empty)
 2. Start the application
 3. Stream will work normally
-4. Frames will be captured but analysis will show: "Azure OpenAI is not configured"
+4. Frames will be captured but analysis will show: "AI is not configured"
+
+## Testing Edge Mode (vLLM)
+
+1. Verify vLLM is running:
+   ```bash
+   curl http://localhost:8000/health
+   ```
+2. Set `MODEL_MODE=edge` in `.env`
+3. Start the application and stream
+4. After 60 seconds, verify:
+   - ✅ Frame is analyzed (not a refusal message)
+   - ✅ Model name shows "microsoft/Phi-4-multimodal-instruct"
+   - ✅ Response format matches scenario (markdown for default, JSON for banking)
+5. Test scenario switching:
+   - Change `PROMPT_PROFILE=ai-first-bank` in `.env`, restart backend
+   - Verify JSON output with people counts, alerts, anomalies
+
+## Testing Cloud Mode (Azure OpenAI)
 
 ## Manual API Testing
 
@@ -211,11 +242,18 @@ curl -X POST http://localhost:3001/api/stream/stop
 3. Verify 60 seconds have passed since stream start
 4. Check frontend console for API errors
 
-### Azure OpenAI Errors
-1. Verify `.env` file exists and has correct credentials
+### Azure OpenAI Errors (Cloud Mode)
+1. Verify `.env` file has `MODEL_MODE=cloud` and correct credentials
 2. Check Azure OpenAI deployment is active
 3. Verify deployment name matches in `.env`
 4. Check API key has correct permissions
+
+### vLLM Errors (Edge Mode)
+1. Check vLLM health: `curl http://localhost:8000/health`
+2. Check GPU: `nvidia-smi`
+3. Restart vLLM: `systemctl --user restart vllm`
+4. Check logs: `journalctl --user -u vllm -f`
+5. If model refusals persist, check system prompt file exists
 
 ## Performance Testing
 
@@ -229,6 +267,7 @@ curl -X POST http://localhost:3001/api/stream/stop
 - Backend memory: ~100-200 MB
 - Frontend memory: ~50-100 MB
 - FFmpeg CPU: 5-20% (one stream)
+- vLLM GPU memory: ~8.8 GB (Phi-4-multimodal FP16)
 - Network: Depends on stream quality
 
 ## Test Checklist
@@ -265,7 +304,8 @@ This will help users understand the application before setting it up themselves.
 
 ---
 
-**Note**: For complete testing with AI analysis, you must have:
-- Valid Azure OpenAI credentials
-- GPT-4o deployment in Azure
-- Configured `.env` file in backend directory
+**Note**: For complete testing with AI analysis, you must have either:
+- **Edge mode**: vLLM running with Phi-4-multimodal-instruct on a supported GPU
+- **Cloud mode**: Valid Azure OpenAI credentials and GPT-4o deployment
+
+See [VLLM_DEPLOYMENT.md](VLLM_DEPLOYMENT.md) for edge setup or configure Azure credentials in `.env` for cloud mode.

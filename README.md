@@ -4,7 +4,7 @@
 
 **Real-time Intelligent Stream Analysis & Monitoring**
 
-*Powered by Azure OpenAI GPT-4o Vision*
+*Dual-mode AI: Azure OpenAI GPT-4o (Cloud) · vLLM + Phi-4-multimodal (Edge)*
 
 </div>
 
@@ -31,25 +31,34 @@
 
 ## 🎯 Overview
 
-**AI Eye - Hub Lobby Live** is a sophisticated web application that combines real-time video streaming with artificial intelligence-powered scene analysis. It monitors lobby environments through live RTSP camera feeds and provides intelligent, witty insights about what's happening in the space.
+**AI Eye - Hub Lobby Live** is a sophisticated web application that combines real-time video streaming with artificial intelligence-powered scene analysis. It monitors lobby environments through live RTSP camera feeds and provides intelligent insights about what's happening in the space.
+
+The system supports **dual-mode AI inference**:
+- **Cloud mode**: Azure OpenAI GPT-4o Vision (requires internet and Azure subscription)
+- **Edge mode**: vLLM with Microsoft Phi-4-multimodal-instruct running on a local GPU (fully offline, no cloud dependency)
 
 ### What Does It Do?
 
 1. **Streams Live Video**: Displays real-time footage from RTSP cameras (like IP security cameras) in your web browser
 2. **Captures Frames**: Automatically takes snapshots every 60 seconds
-3. **AI Analysis**: Uses Azure OpenAI's GPT-4o Vision model to analyze each frame
-4. **Provides Insights**: Generates creative, witty descriptions and counts people in different areas
-5. **Displays Results**: Shows analyzed frames with detailed information in a beautiful, modern interface
+3. **AI Analysis**: Uses Azure OpenAI GPT-4o Vision (cloud) or vLLM + Phi-4-multimodal (edge) to analyze each frame
+4. **Scenario-Based Prompts**: Switchable prompt profiles for different environments (lobby monitoring, banking security)
+5. **Provides Insights**: Generates scene descriptions, people counts, and anomaly alerts
+6. **Displays Results**: Shows analyzed frames with detailed information in a modern, dark-theme interface
 
 ### Key Features
 
+- ✅ **Dual-Mode AI** — cloud (Azure OpenAI GPT-4o) or edge (vLLM + Phi-4-multimodal)
 - ✅ **Live RTSP Streaming** with HLS conversion for browser compatibility
 - ✅ **AI-Powered Frame Analysis** with people counting and scene description
-- ✅ **Dynamic Witty Captions** that comment on actual activities
+- ✅ **Scenario Switching** — select prompt profiles from the UI (Innovation Hub, AI-First Bank)
+- ✅ **Anti-Hallucination Guardrails** — confidence thresholds, false-positive warnings
+- ✅ **Model Refusal Detection** — auto-retry when edge model returns text-mode errors
+- ✅ **Banking Scenario Alerts** — anomaly and security event badges
 - ✅ **Real-time People Counting** (near doors, at reception, other areas)
 - ✅ **Modal Frame Details** with expandable views
-- ✅ **Streaming Status Sync** - UI reflects actual backend state
-- ✅ **Memory Management** - automatically cleans up old frames
+- ✅ **Streaming Status Sync** — UI reflects actual backend state
+- ✅ **Memory Management** — automatically cleans up old frames
 - ✅ **Prominent Countdown Timer** for visibility from across the lobby
 - ✅ **Modern, Responsive UI** built with React and Tailwind CSS
 
@@ -255,13 +264,17 @@ Here's the complete flow of how video gets from your camera to your browser:
 │             │         │             │         │              │
 └─────────────┘         └─────────────┘         └──────────────┘
                               │
-                              │ HTTP
-                              ▼
-                        ┌──────────────┐
-                        │ Azure OpenAI │
-                        │   GPT-4o     │
-                        └──────────────┘
+                    ┌─────────┴──────────┐
+                    │                    │
+                    ▼ (edge)             ▼ (cloud)
+              ┌──────────────┐    ┌──────────────┐
+              │   vLLM       │    │ Azure OpenAI │
+              │ Phi-4-multi  │    │   GPT-4o     │
+              │ (local GPU)  │    │              │
+              └──────────────┘    └──────────────┘
 ```
+
+> **Current deployment**: Edge mode with vLLM + Phi-4-multimodal-instruct on Azure Stack Edge (Tesla T4 GPU). See [VLLM_DEPLOYMENT.md](VLLM_DEPLOYMENT.md) for full setup guide.
 
 ### Backend Architecture (Node.js + Express)
 
@@ -288,11 +301,15 @@ The backend is the "server" that does the heavy lifting:
 
 #### 3. **Frame Analysis Service** (`services/frameAnalysisService.js`)
 
-**Purpose**: Captures frames from the camera and analyzes them with AI
+**Purpose**: Captures frames from the camera and analyzes them with AI (cloud or edge)
 
 **How it works**:
 - **Frame Capture** (every 60 seconds): Uses FFmpeg to grab single frame, saves as JPEG
-- **AI Analysis**: Sends image to Azure OpenAI GPT-4o Vision for analysis
+- **Edge mode**: Sends Base64-encoded image to vLLM OpenAI-compatible API (`/v1/chat/completions`)
+- **Cloud mode**: Sends image to Azure OpenAI GPT-4o Vision
+- **Scenario prompts**: Loads prompt from `system-prompts/{PROMPT_PROFILE}/analysis-prompt-edge.txt`
+- **Auto-detect format**: Parses JSON (banking) or markdown (default) responses
+- **Model refusal detection**: Retries if model returns text-mode error
 - **Store Results**: Keeps last 10 frames in memory, deletes old files
 
 ### Frontend Architecture (React + Vite)
@@ -343,11 +360,16 @@ The frontend is the "client" that users see in their browser:
    - **Linux**: `sudo apt install ffmpeg`
    - Verify: `ffmpeg -version`
 
-3. **Azure OpenAI Account**
-   - Sign up at https://azure.microsoft.com/
-   - Create Azure OpenAI resource
-   - Deploy GPT-4o or GPT-4o-mini model
-   - Get endpoint URL and API key
+3. **AI Backend** — choose one:
+
+   **Option A: Edge Mode (vLLM + Phi-4-multimodal)**
+   - NVIDIA GPU with ≥15 GB VRAM (e.g. Tesla T4)
+   - Python 3.11+, vLLM v0.16+
+   - See [VLLM_DEPLOYMENT.md](VLLM_DEPLOYMENT.md) for complete setup
+
+   **Option B: Cloud Mode (Azure OpenAI)**
+   - Azure OpenAI resource with GPT-4o or GPT-4o-mini deployment
+   - Endpoint URL and API key
 
 ---
 
@@ -388,9 +410,29 @@ cp .env.example .env
 
 2. **Edit `.env` file** with your settings:
 
+**For Edge Mode (vLLM — current deployment):**
 ```env
 # Server Configuration
 PORT=3001
+
+# Model Mode
+MODEL_MODE=edge
+SLM_URL=http://localhost:8000
+VLLM_MODEL=microsoft/Phi-4-multimodal-instruct
+
+# Frame Analysis Configuration
+MAX_ANALYZED_FRAMES=10
+FRAME_CAPTURE_INTERVAL=60000
+PROMPT_PROFILE=hub-lobby-default
+```
+
+**For Cloud Mode (Azure OpenAI):**
+```env
+# Server Configuration
+PORT=3001
+
+# Model Mode
+MODEL_MODE=cloud
 
 # Azure OpenAI Configuration
 AZURE_OPENAI_ENDPOINT=https://your-resource-name.openai.azure.com/
@@ -400,12 +442,11 @@ AZURE_OPENAI_API_VERSION=2024-02-15-preview
 
 # Frame Analysis Configuration
 MAX_ANALYZED_FRAMES=10
-
-# RTSP Stream Configuration
-RTSP_URL=rtsp://admin:%3FW%21ndows%4010@10.11.70.10:554
+FRAME_CAPTURE_INTERVAL=60000
+PROMPT_PROFILE=hub-lobby-default
 ```
 
-**How to get Azure OpenAI credentials**:
+**How to get Azure OpenAI credentials** (cloud mode only):
 1. Go to https://portal.azure.com
 2. Create Azure OpenAI resource
 3. Deploy a GPT-4o or GPT-4o-mini model
@@ -461,7 +502,7 @@ npm run dev
 
 ## 🖥️ VM Deployment (Current Setup)
 
-The application is deployed on the GPU VM (`10.11.70.24`) using **tmux** sessions so that the backend and frontend survive SSH disconnects. The Phi-4 model server runs as a **systemd** service that auto-starts on boot.
+The application is deployed on an Azure Stack Edge GPU VM (`10.11.70.24`) with an NVIDIA Tesla T4 GPU. All services run as **systemd user services** with linger enabled, so they auto-start on boot and survive SSH disconnects. See [VLLM_DEPLOYMENT.md](VLLM_DEPLOYMENT.md) for the full deployment guide.
 
 ### 🌐 Open the App
 
@@ -475,9 +516,9 @@ http://10.11.70.24:5173
 
 | Service              | How it runs       | URL                           | Port |
 |----------------------|-------------------|-------------------------------|------|
-| Phi-4 Model Server   | systemd service (`phi4-server`) | `http://localhost:8000` | 8000 |
-| Backend (Node.js)    | tmux session (`backend`)        | `http://localhost:3001` | 3001 |
-| Frontend (React)     | tmux session (`frontend`)       | `http://10.11.70.24:5173` | 5173 |
+| vLLM (Phi-4-multi)   | systemd user service (`vllm.service`) | `http://localhost:8000` | 8000 |
+| Backend (Node.js)    | systemd user service (`lobby-backend.service`) | `http://localhost:3001` | 3001 |
+| Frontend (React)     | systemd user service (`lobby-frontend.service`) | `http://10.11.70.24:5173` | 5173 |
 
 ---
 
@@ -498,16 +539,16 @@ Enter your password when prompted. You are now on the VM.
 #### Step 2: Check if everything is running
 
 ```bash
-# Check tmux sessions (backend & frontend)
-tmux ls
+# Check all services
+systemctl --user status vllm lobby-backend lobby-frontend
 
-# Check model server
-sudo systemctl status phi4-server
+# Or check individually
+systemctl --user status vllm
+systemctl --user status lobby-backend
+systemctl --user status lobby-frontend
 ```
 
-You should see:
-- Two tmux sessions: `backend` and `frontend`
-- phi4-server showing `active (running)`
+You should see all three services showing `active (running)`.
 
 #### Step 3: Check health of each service
 
@@ -528,7 +569,7 @@ curl -m 5 http://localhost:5173/ | head -1
 
 **Symptom:** The app shows "Scene analysis in progress" but no results appear, or analysis keeps timing out.
 
-**Cause:** The Phi-4 model server gets stuck processing a request and stops responding.
+**Cause:** The vLLM model server gets stuck processing a request and stops responding.
 
 **Fix — restart the model server:**
 
@@ -537,19 +578,18 @@ curl -m 5 http://localhost:5173/ | head -1
 ssh azureuser@10.11.70.24
 
 # Step 2: Restart the model server
-sudo systemctl restart phi4-server
+systemctl --user restart vllm
 
 # Step 3: Wait ~30 seconds for the model to load into GPU memory, then verify
 sleep 30
 curl -m 10 http://localhost:8000/health
-# Should return: {"status":"ok","model":"/storage/models/phi-4-multimodal"}
+# Should return: {"status":"ok"}
 
 # Step 4: Restart the backend (to clear timeout state)
-tmux kill-session -t backend
-tmux new-session -d -s backend -c /home/azureuser/Lobby-Live-Stream-Agent-v2/backend 'npm start'
+systemctl --user restart lobby-backend
 
 # Step 5: Verify everything is running
-tmux ls
+systemctl --user status vllm lobby-backend lobby-frontend
 ```
 
 Then refresh the app in your browser (`http://10.11.70.24:5173`) and click "Start Stream" again.
@@ -592,21 +632,22 @@ tmux new-session -d -s frontend -c /home/azureuser/Lobby-Live-Stream-Agent-v2/fr
 # Step 1: SSH into the VM
 ssh azureuser@10.11.70.24
 
-# Step 2: Check which sessions are running
-tmux ls
+# Step 2: Check which services are running
+systemctl --user status vllm lobby-backend lobby-frontend
 
-# Step 3: Restart whatever is missing
+# Step 3: Restart whatever is not running
 
 # Restart backend:
-tmux kill-session -t backend 2>/dev/null
-tmux new-session -d -s backend -c /home/azureuser/Lobby-Live-Stream-Agent-v2/backend 'npm start'
+systemctl --user restart lobby-backend
 
 # Restart frontend:
-tmux kill-session -t frontend 2>/dev/null
-tmux new-session -d -s frontend -c /home/azureuser/Lobby-Live-Stream-Agent-v2/frontend 'npm run dev -- --host 0.0.0.0'
+systemctl --user restart lobby-frontend
+
+# Restart all:
+systemctl --user restart vllm lobby-backend lobby-frontend
 
 # Step 4: Verify
-tmux ls
+systemctl --user status vllm lobby-backend lobby-frontend
 ```
 
 ---
@@ -620,46 +661,42 @@ To troubleshoot issues by looking at live logs:
 ssh azureuser@10.11.70.24
 
 # View backend logs (live)
-tmux attach -t backend
+journalctl --user -u lobby-backend -f
 
 # View frontend logs (live)
-tmux attach -t frontend
+journalctl --user -u lobby-frontend -f
 
-# View model server logs
-sudo journalctl -u phi4-server -f
+# View vLLM model server logs
+journalctl --user -u vllm -f
 
-# IMPORTANT: To exit a tmux session WITHOUT stopping it:
-#   Press Ctrl+B, then press D
-#
-# To scroll up through log history inside tmux:
-#   Press Ctrl+B, then press [
-#   Use arrow keys or Page Up/Down to scroll
-#   Press q to exit scroll mode
+# View last 100 lines of a service
+journalctl --user -u lobby-backend -n 100
 ```
 
 ---
 
 ### 🔁 Restarting Everything After a VM Reboot
 
+All services auto-start on boot via systemd with linger enabled. Just verify they're running:
+
 ```bash
 # SSH into the VM
 ssh azureuser@10.11.70.24
 
-# The model server auto-starts on boot (systemd), verify it's running:
-sudo systemctl status phi4-server
-# Wait until it shows "active (running)" — may take ~30 seconds after boot
+# Check all services (should all be active)
+systemctl --user status vllm lobby-backend lobby-frontend
 
-# Start backend
-tmux new-session -d -s backend -c /home/azureuser/Lobby-Live-Stream-Agent-v2/backend 'npm start'
-
-# Start frontend
-tmux new-session -d -s frontend -c /home/azureuser/Lobby-Live-Stream-Agent-v2/frontend 'npm run dev -- --host 0.0.0.0'
-
-# Verify all three services
-tmux ls
+# Wait for vLLM to load model (~30 seconds after boot)
 curl -m 10 http://localhost:8000/health
+
+# Verify backend and frontend
 curl -m 5 http://localhost:3001/ | head -1
 curl -m 5 http://localhost:5173/ | head -1
+```
+
+If any service failed to start:
+```bash
+systemctl --user restart vllm lobby-backend lobby-frontend
 ```
 
 ---
@@ -735,26 +772,14 @@ Let me walk you through exactly what happens when you use the application:
 #### Step 4: AI Analyzes Captured Frame
 - Backend reads the JPEG file created by FFmpeg
 - Converts image to Base64 encoding
-- Sends to Azure OpenAI API with this prompt:
-  ```
-  "Analyze this lobby surveillance frame. Count people in different areas
-  (near doors, at reception, other areas). Generate a witty, context-specific
-  caption describing what's actually happening. Be specific and creative."
-  ```
-- Azure OpenAI GPT-4o Vision analyzes the image
-- Returns JSON response:
-  ```json
-  {
-    "peopleCount": {
-      "nearDoors": 2,
-      "atReception": 1,
-      "otherAreas": 3,
-      "total": 6
-    },
-    "sceneDescription": "The lobby is moderately busy...",
-    "wittySummary": "Six people making the lobby feel alive!"
-  }
-  ```
+- Loads the scenario-specific system prompt from `system-prompts/{PROMPT_PROFILE}/`
+- **Edge mode**: Sends to vLLM OpenAI-compatible API at `http://localhost:8000/v1/chat/completions`
+- **Cloud mode**: Sends to Azure OpenAI GPT-4o Vision API
+- AI analyzes the image and returns either:
+  - **JSON** (banking scenario): structured response with people counts, alerts, anomalies
+  - **Markdown** (default scenario): free-form scene description
+- Backend auto-detects the response format and parses accordingly
+- If model returns a refusal (text-mode error), backend retries automatically
 
 #### Step 5: Backend Stores Frame + Analysis
 - Stores frame metadata in memory array:
@@ -804,14 +829,14 @@ RTSP video stream  →  converts to H.264     →  and .m3u8 playlist → and de
 ### AI Analysis Pipeline
 
 ```
-RTSP Camera → FFmpeg Capture → JPEG → Base64 → Azure AI → JSON → Display
+RTSP Camera → FFmpeg Capture → JPEG → Base64 → AI (vLLM or Azure) → Parse → Display
 ```
 
 **Detailed breakdown:**
 ```
-Camera broadcasts    FFmpeg grabs          Saves as JPEG      Encodes to        Sends to Azure      AI returns        Frontend displays
-RTSP video stream → single frame (60s) →  image file      →  Base64 string  → OpenAI GPT-4o  →  JSON analysis  →  in gallery + modal
-(continuous)         (separate process)     (on disk)          (in memory)       (vision API)        (with counts)     (with timestamps)
+Camera broadcasts    FFmpeg grabs          Saves as JPEG      Encodes to        Sends to vLLM       AI returns        Frontend displays
+RTSP video stream → single frame (60s) →  image file      →  Base64 string  → or Azure OpenAI →  analysis       →  in gallery + modal
+(continuous)         (separate process)     (on disk)          (in memory)       (vision API)        (JSON/markdown)   (with timestamps)
 ```
 
 ### Why Two Separate FFmpeg Processes?
@@ -840,7 +865,7 @@ Time  | What Happens
 0:04  | Browser starts playing video
 0:05  | Live video visible to user
 0:05  | Backend also triggers first frame capture immediately
-0:06  | Frame sent to Azure OpenAI for analysis
+0:06  | Frame sent to AI (vLLM or Azure OpenAI) for analysis
 0:08  | AI response received, frame stored
 0:10  | Frontend polls and displays first analyzed frame
 0:60  | Timer triggers second frame capture
@@ -853,7 +878,7 @@ Time  | What Happens
 
 Every 60 seconds:
 1. Backend captures frame (FFmpeg grab single image)
-2. Backend analyzes frame (Azure OpenAI API call)
+2. Backend analyzes frame (vLLM or Azure OpenAI API call)
 3. Backend stores frame (memory + disk)
 4. Frontend polls and retrieves frame (HTTP GET)
 5. Frontend displays frame (gallery update)
@@ -883,6 +908,9 @@ Lobby-Live-Stream-Agent-v2/
 ├── backend/
 │   ├── routes/           # API endpoints
 │   ├── services/         # Business logic
+│   ├── system-prompts/   # Scenario prompt files
+│   │   ├── hub-lobby-default/  # Innovation Hub (markdown)
+│   │   └── ai-first-bank/     # Banking lobby (JSON)
 │   ├── captures/         # Frame images
 │   ├── stream/           # HLS segments
 │   └── server.js         # Entry point
@@ -894,6 +922,7 @@ Lobby-Live-Stream-Agent-v2/
 │   ├── index.html
 │   └── package.json
 │
+├── VLLM_DEPLOYMENT.md    # vLLM + Phi-4 setup guide
 └── README.md
 ```
 
@@ -909,9 +938,13 @@ Lobby-Live-Stream-Agent-v2/
 - **Problem**: Video not loading
 - **Solutions**: Check RTSP URL, test in VLC, verify network
 
-### Azure OpenAI Issues
+### Azure OpenAI Issues (Cloud Mode)
 - **Error**: "Not configured"
-- **Solution**: Check `.env` file, restart backend
+- **Solution**: Check `.env` file has `MODEL_MODE=cloud` and valid Azure credentials, restart backend
+
+### vLLM Issues (Edge Mode)
+- **Error**: Analysis timeouts or refusal messages
+- **Solution**: Restart vLLM with `systemctl --user restart vllm`, wait 30s, then restart backend
 
 ---
 
@@ -961,7 +994,9 @@ Maintained by Microsoft Innovation Hub India.
 ## 🙏 Acknowledgments
 
 - Microsoft Innovation Hub India team
-- Azure OpenAI for GPT-4o Vision
+- Azure OpenAI for GPT-4o Vision (cloud mode)
+- vLLM project for high-performance model serving (edge mode)
+- Microsoft Phi-4-multimodal-instruct model
 - Open source community (HLS.js, Lucide, Tailwind, FFmpeg)
 
 ---
@@ -970,6 +1005,6 @@ Maintained by Microsoft Innovation Hub India.
 
 **Made with ❤️ by Microsoft Innovation Hub India**
 
-*Powered by Azure OpenAI GPT-4o Vision*
+*Dual-mode AI: Azure OpenAI GPT-4o (Cloud) · vLLM + Phi-4-multimodal (Edge)*
 
 </div>

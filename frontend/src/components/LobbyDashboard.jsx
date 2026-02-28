@@ -103,6 +103,7 @@ export default function LobbyLiveStreamDashboard() {
   const [modelMode, setModelMode] = useState('cloud');
   const [slmUrl, setSlmUrl] = useState('');
   const [switchingModel, setSwitchingModel] = useState(false);
+  const [slmHealthy, setSlmHealthy] = useState(null);
   
   // Analyzed frames state
   const [analyzedFrames, setAnalyzedFrames] = useState([]);
@@ -141,15 +142,24 @@ export default function LobbyLiveStreamDashboard() {
       
       const hls = new Hls({
         enableWorker: true,
-        lowLatencyMode: true,
-        debug: false, // Disable debug to reduce console noise
+        lowLatencyMode: false,
+        debug: false,
         xhrSetup: (xhr, url) => {
           xhr.withCredentials = false;
         },
-        maxBufferLength: 30,
-        maxMaxBufferLength: 600,
-        maxBufferSize: 60 * 1000 * 1000,
-        maxBufferHole: 0.5
+        liveSyncDurationCount: 3,
+        liveMaxLatencyDurationCount: 8,
+        liveDurationInfinity: true,
+        maxBufferLength: 10,
+        maxMaxBufferLength: 30,
+        maxBufferSize: 30 * 1000 * 1000,
+        maxBufferHole: 0.5,
+        manifestLoadingTimeOut: 10000,
+        manifestLoadingMaxRetry: 6,
+        levelLoadingTimeOut: 10000,
+        levelLoadingMaxRetry: 6,
+        fragLoadingTimeOut: 10000,
+        fragLoadingMaxRetry: 6,
       });
 
       hls.loadSource(streamUrl);
@@ -358,6 +368,11 @@ export default function LobbyLiveStreamDashboard() {
         if (data.capture?.deploymentName) {
           setModelName(data.capture.deploymentName);
         }
+        
+        // Update SLM health status
+        if (data.capture?.slmHealthy !== undefined) {
+          setSlmHealthy(data.capture.slmHealthy);
+        }
       }
     } catch (error) {
       console.error('Error fetching stream status:', error);
@@ -498,7 +513,16 @@ export default function LobbyLiveStreamDashboard() {
     
     // Extract caption from HTML span
     const captionMatch = decodedText.match(/<span class=["']ai-caption["']>(.*?)<\/span>/);
-    const result = captionMatch ? captionMatch[1] : "Scene Analysis in Progress";
+    if (captionMatch) {
+      console.log('Extracted caption:', captionMatch[1]);
+      return captionMatch[1];
+    }
+    // Check if analysis is an error string
+    if (typeof analysis === 'string' && (analysis.startsWith('Error') || analysis.includes('unavailable') || analysis.includes('timed out'))) {
+      console.log('Analysis error detected:', analysis.substring(0, 100));
+      return 'Model recovering — next analysis incoming...';
+    }
+    const result = "Scene Analysis in Progress";
     console.log('Extracted caption:', result);
     return result;
   };
@@ -910,6 +934,7 @@ export default function LobbyLiveStreamDashboard() {
                 <li>RTSP connection: {isStreaming ? 'Active' : 'Inactive'}</li>
                 <li>Frame capture interval: 60 seconds</li>
                 <li>AI analysis: {currentFrame ? 'Running' : 'Standby'}</li>
+                {modelMode === 'edge' && <li>Edge model: {slmHealthy === true ? <span className="text-emerald-400">Healthy</span> : slmHealthy === false ? <span className="text-amber-400">Recovering...</span> : 'Unknown'}</li>}
               </ul>
             </div>
 

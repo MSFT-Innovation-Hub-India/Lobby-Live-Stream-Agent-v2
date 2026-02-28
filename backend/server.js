@@ -9,7 +9,15 @@ const PORT = process.env.PORT || 3001;
 // Middleware
 app.use(cors());
 app.use(express.json());
-app.use('/stream', express.static(path.join(__dirname, 'stream')));
+app.use('/stream', (req, res, next) => {
+  // Prevent caching for HLS playlist and segments so the player always gets fresh data
+  res.set({
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
+    'Pragma': 'no-cache',
+    'Expires': '0'
+  });
+  next();
+}, express.static(path.join(__dirname, 'stream')));
 app.use('/captures', express.static(path.join(__dirname, 'captures')));
 
 // Import routes

@@ -58,9 +58,11 @@ router.post('/stop', (req, res) => {
 });
 
 // Get stream status
-router.get('/status', (req, res) => {
+router.get('/status', async (req, res) => {
   try {
     const streamStatus = streamService.getStatus();
+    // Refresh SLM health in background (non-blocking for response)
+    frameAnalysisService.refreshSLMHealth().catch(() => {});
     const captureStatus = frameAnalysisService.getStatus();
 
     res.json({ 

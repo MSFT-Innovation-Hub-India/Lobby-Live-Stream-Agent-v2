@@ -29,9 +29,12 @@ class FrameAnalysisService {
     this.analysisPrompt = this.loadPrompt(this.promptProfile);
     this.scenarioConfig = this.loadScenarioConfig(this.promptProfile);
 
-    // Model mode: 'cloud' (Azure OpenAI) or 'edge' (local SLM)
+    // Model mode: 'cloud' (Azure OpenAI) or 'edge' (local SLM via Ollama)
     this.modelMode = process.env.MODEL_MODE || 'cloud';
-    this.slmUrl = process.env.SLM_URL || 'http://10.11.70.24:8000';
+    this.slmUrl = process.env.SLM_URL || 'http://localhost:8000';
+    this.vllmModel = process.env.VLLM_MODEL || 'microsoft/Phi-4-multimodal-instruct';
+    this._lastSLMHealthy = null;
+    this._lastSLMTimeouts = 0;
     // Load edge-specific prompt if starting in edge mode
     if (this.modelMode === 'edge') {
       this.edgePrompt = this.loadPrompt(this.promptProfile, 'edge');
@@ -238,6 +241,18 @@ class FrameAnalysisService {
         try {
           const analysis = await this.analyzeFrame(filepath);
           
+          // Skip storing frames where analysis returned an error string
+          // (e.g. SLM unavailable, timeout). This prevents the frontend from
+          // showing stale "Scene Analysis in Progress" entries.
+          if (typeof analysis === 'string' && analysis.startsWith('Error')) {
+            console.warn('Skipping frame storage — analysis returned error:', analysis.substring(0, 120));
+            return;
+          }
+          if (typeof analysis === 'string' && analysis.includes('unavailable')) {
+            console.warn('Skipping frame storage — SLM unavailable:', analysis.substring(0, 120));
+            return;
+          }
+
           // Store the analyzed frame info
           const frameData = {
             id: timestamp,
@@ -319,43 +334,62 @@ class FrameAnalysisService {
     return this.analyzeFrameWithCloud(imagePath);
   }
 
-  // Analyze frame using local SLM at the edge
+  // Check if vLLM is healthy and the model is available
+  async checkSLMHealth() {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const response = await fetch(`${this.slmUrl}/health`, {
+        signal: controller.signal
+      });
+      clearTimeout(timeout);
+      if (!response.ok) return false;
+      return true;
+    } catch (error) {
+      console.error('vLLM health check error:', error.message);
+      return false;
+    }
+  }
+
+  // Analyze frame using local SLM via vLLM (OpenAI-compatible API)
   async analyzeFrameWithSLM(imagePath) {
     try {
+      // Pre-flight health check — skip inference if vLLM is down
+      const healthy = await this.checkSLMHealth();
+      if (!healthy) {
+        console.warn('vLLM health check failed — skipping this frame analysis');
+        return 'Edge SLM is currently unavailable (health check failed). Will retry next cycle.';
+      }
+
       const imageBuffer = fs.readFileSync(imagePath);
       const base64Image = imageBuffer.toString('base64');
 
       // Use edge-specific prompt if available, otherwise fall back to default
       const prompt = this.edgePrompt || this.analysisPrompt;
 
-      // Timeout after 60 seconds to prevent hanging
+      // Timeout after 120 seconds
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 60000);
+      const timeout = setTimeout(() => controller.abort(), 120000);
 
       let response;
       try {
-        response = await fetch(`${this.slmUrl}/v1/chat`, {
+        response = await fetch(`${this.slmUrl}/v1/chat/completions`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           signal: controller.signal,
           body: JSON.stringify({
+            model: this.vllmModel,
             messages: [
               {
                 role: 'user',
                 content: [
-                  {
-                    type: 'image_url',
-                    image_url: { url: `data:image/jpeg;base64,${base64Image}` }
-                  },
-                  {
-                    type: 'text',
-                    text: prompt
-                  }
+                  { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64Image}` } },
+                  { type: 'text', text: prompt }
                 ]
               }
             ],
-            max_tokens: 2048,
-            temperature: 0.3
+            max_tokens: 1024,
+            temperature: 0.7
           })
         });
       } finally {
@@ -363,32 +397,191 @@ class FrameAnalysisService {
       }
 
       const data = await response.json();
-      const rawAnalysis = data.response || data.choices?.[0]?.message?.content || JSON.stringify(data);
+      const rawAnalysis = data.choices?.[0]?.message?.content || JSON.stringify(data);
       console.log('SLM raw response (first 800 chars):', rawAnalysis.substring(0, 800));
 
-      // Try to parse JSON response
-      try {
-        let jsonStr = rawAnalysis.trim();
-        // Strip markdown code fences if present
-        if (jsonStr.startsWith('```')) {
-          jsonStr = jsonStr.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
+      // Detect model refusal — the model sometimes claims it cannot see images
+      if (this.isModelRefusal(rawAnalysis)) {
+        console.warn('SLM returned a refusal response — image may not have been processed. Retrying once...');
+        // Retry the request once
+        const retryResponse = await fetch(`${this.slmUrl}/v1/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: this.vllmModel,
+            messages: [
+              {
+                role: 'user',
+                content: [
+                  { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64Image}` } },
+                  { type: 'text', text: prompt }
+                ]
+              }
+            ],
+            max_tokens: 1024,
+            temperature: 0.7
+          })
+        });
+        const retryData = await retryResponse.json();
+        const retryAnalysis = retryData.choices?.[0]?.message?.content || '';
+        console.log('SLM retry response (first 800 chars):', retryAnalysis.substring(0, 800));
+        if (this.isModelRefusal(retryAnalysis)) {
+          console.error('SLM retry also returned refusal — skipping this frame');
+          return 'Error: Model refused to analyze image';
         }
-        const parsed = JSON.parse(jsonStr);
-        console.log('SLM parsed keys:', Object.keys(parsed));
-        console.log('SLM scene_description (first 200 chars):', (parsed.scene_description || '').substring(0, 200));
-        return this.postProcessSLMResponse(parsed, rawAnalysis);
-      } catch (parseError) {
-        console.warn('SLM: Failed to parse JSON, attempting to extract counts from raw text:', parseError.message);
-        // The SLM often returns valid JSON but truncated — extract counts via regex
-        const extracted = this.extractCountsFromRawText(rawAnalysis);
-        console.log('SLM extracted counts:', extracted);
-        return this.postProcessSLMResponse(extracted, rawAnalysis);
+        const retryResult = this.buildResponseFromSLM(retryAnalysis);
+        console.log('SLM retry caption:', (retryResult.scene_description || '').substring(0, 150));
+        return retryResult;
       }
+
+      // Build structured response — detect JSON vs plain markdown output
+      const result = this.buildResponseFromSLM(rawAnalysis);
+      console.log('SLM caption:', (result.scene_description || '').substring(0, 150));
+      return result;
     } catch (error) {
-      const msg = error.name === 'AbortError' ? 'SLM request timed out after 60s' : error.message;
-      console.error('Error in SLM analysis:', msg);
+      const msg = error.name === 'AbortError' ? 'vLLM request timed out after 120s' : error.message;
+      console.error('Error in vLLM analysis:', msg);
       return `Error analyzing frame with edge SLM: ${msg}`;
     }
+  }
+
+  // Route SLM output to the correct parser based on format (JSON vs markdown)
+  buildResponseFromSLM(rawText) {
+    const text = rawText.trim();
+
+    // Detect JSON output (from prompts like ai-first-bank that request JSON)
+    // The model may wrap it in ```json ... ``` fences
+    const jsonBody = text.replace(/^```json\s*/i, '').replace(/\s*```\s*$/, '').trim();
+    if (jsonBody.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(jsonBody);
+        if (parsed.scene_description) {
+          return this.buildResponseFromJSON(parsed);
+        }
+      } catch {
+        // JSON parse failed — may be truncated. Try regex extraction.
+        const partialResult = this.buildResponseFromPartialJSON(jsonBody);
+        if (partialResult) return partialResult;
+      }
+    }
+
+    // Fall back to plain markdown parser
+    return this.buildResponseFromMarkdown(text);
+  }
+
+  // Detect model refusal responses where it claims it cannot see images
+  isModelRefusal(text) {
+    const lower = text.toLowerCase();
+    return (
+      lower.includes("i'm unable to view images") ||
+      lower.includes("i cannot view images") ||
+      lower.includes("i'm unable to see images") ||
+      lower.includes("i cannot see images") ||
+      lower.includes("as an ai text-based model") ||
+      lower.includes("as a text-based ai") ||
+      lower.includes("i don't have the ability to view") ||
+      lower.includes("i cannot directly view") ||
+      lower.includes("i'm not able to view images")
+    );
+  }
+
+  // Build structured response from a fully-parsed JSON object
+  buildResponseFromJSON(parsed) {
+    return {
+      timestamp: new Date().toISOString(),
+      total_persons: parsed.total_persons || 0,
+      persons_near_doors: parsed.persons_near_doors || 0,
+      persons_at_reception: parsed.persons_at_reception || 0,
+      persons_in_other_areas: parsed.persons_in_other_areas || 0,
+      scene_description: parsed.scene_description,
+      alert_message: parsed.alert_required ? (parsed.alert_message || null) : null,
+      _edgeMode: true
+    };
+  }
+
+  // Extract fields from truncated/partial JSON using regex
+  buildResponseFromPartialJSON(text) {
+    // Try to extract scene_description
+    const descMatch = text.match(/"scene_description"\s*:\s*"([\s\S]*?)(?:"\s*[,}]|$)/);
+    if (!descMatch) return null;
+
+    const sceneDesc = descMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+    const alertMatch = text.match(/"alert_required"\s*:\s*(true|false)/i);
+    const alertMsgMatch = text.match(/"alert_message"\s*:\s*"([\s\S]*?)(?:"\s*[,}])/);
+
+    return {
+      timestamp: new Date().toISOString(),
+      total_persons: 0,
+      persons_near_doors: 0,
+      persons_at_reception: 0,
+      persons_in_other_areas: 0,
+      scene_description: sceneDesc,
+      alert_message: (alertMatch && alertMatch[1] === 'true' && alertMsgMatch) ? alertMsgMatch[1] : null,
+      _edgeMode: true
+    };
+  }
+
+  // Build the structured response object from the model's plain markdown output.
+  // This avoids requiring the SLM to produce valid JSON — much more reliable.
+  buildResponseFromMarkdown(rawText) {
+    const text = rawText.trim();
+
+    // Extract caption from "CAPTION: ..." line
+    let caption = '';
+    const captionMatch = text.match(/^CAPTION:\s*(.+)$/m);
+    if (captionMatch) {
+      caption = captionMatch[1].trim();
+    } else {
+      // Fallback: use the first non-empty line that isn't a section header
+      const firstLine = text.split('\n').find(l => l.trim().length > 10 && !l.startsWith('ENVIRONMENT') && !l.startsWith('PEOPLE'));
+      if (firstLine) caption = firstLine.trim();
+    }
+
+    // Extract people count from "PEOPLE COUNT: N" line
+    let totalPersons = 0;
+    const countMatch = text.match(/PEOPLE COUNT:\s*(\d+)/i);
+    if (countMatch) {
+      totalPersons = parseInt(countMatch[1], 10);
+    }
+
+    // Extract sections and reformat with emojis for the frontend
+    const sections = [];
+    const sectionMap = [
+      { key: 'ENVIRONMENT:', emoji: '🏢', title: 'Location & Environment' },
+      { key: 'PEOPLE:', emoji: '👥', title: 'People & Activities' },
+      { key: 'DETAILS:', emoji: '🔍', title: 'Notable Elements' },
+      { key: 'STATUS:', emoji: '📊', title: 'Overall Status' }
+    ];
+
+    for (const sec of sectionMap) {
+      const regex = new RegExp(`^${sec.key}\\s*(.+?)(?=^(?:ENVIRONMENT:|PEOPLE:|DETAILS:|STATUS:|PEOPLE COUNT:)|$)`, 'ms');
+      const match = text.match(regex);
+      if (match && match[1].trim()) {
+        sections.push(`**${sec.emoji} ${sec.title}:**\n${match[1].trim()}`);
+      }
+    }
+
+    // Build scene_description: HTML caption + formatted sections
+    const htmlCaption = caption
+      ? `<span class="ai-caption">${caption}</span>`
+      : '<span class="ai-caption">Analyzing the lobby scene...</span>';
+
+    const body = sections.length > 0
+      ? sections.join('\n\n')
+      : text.replace(/^CAPTION:.*$/m, '').replace(/PEOPLE COUNT:.*$/im, '').trim();
+
+    const sceneDescription = `${htmlCaption}\n\n${body}`;
+
+    return {
+      timestamp: new Date().toISOString(),
+      total_persons: totalPersons,
+      persons_near_doors: 0,
+      persons_at_reception: 0,
+      persons_in_other_areas: 0,
+      scene_description: sceneDescription,
+      alert_message: null,
+      _edgeMode: true
+    };
   }
 
   // Extract numeric counts and scene text from a truncated/invalid JSON response
@@ -659,14 +852,32 @@ class FrameAnalysisService {
       isCapturing: this.isCapturing,
       frameCount: this.analyzedFrames.length,
       rtspUrl: this.rtspUrl,
-      deploymentName: this.modelMode === 'edge' ? 'Phi-4-multimodal-instruct' : this.deploymentName,
+      deploymentName: this.modelMode === 'edge' ? this.vllmModel : this.deploymentName,
       modelMode: this.modelMode,
       slmUrl: this.slmUrl,
       failedCaptureCount: this.failedCaptureCount,
       maxFailedCaptures: this.maxFailedCaptures,
       activeScenario: this.promptProfile,
-      scenarioConfig: this.scenarioConfig
+      scenarioConfig: this.scenarioConfig,
+      slmHealthy: this._lastSLMHealthy,
+      slmConsecutiveTimeouts: this._lastSLMTimeouts ?? 0
     };
+  }
+
+  // Periodically refresh SLM health (called from status polling or on-demand)
+  async refreshSLMHealth() {
+    if (this.modelMode !== 'edge') {
+      this._lastSLMHealthy = null;
+      this._lastSLMTimeouts = 0;
+      return;
+    }
+    try {
+      this._lastSLMHealthy = await this.checkSLMHealth();
+      this._lastSLMTimeouts = 0;
+    } catch {
+      this._lastSLMHealthy = false;
+      this._lastSLMTimeouts = -1;
+    }
   }
 }
 

@@ -1,15 +1,11 @@
-Analyze this lobby camera image. Describe what you see in the entrance lobby of a tech innovation hub.
+This is a security camera image from an innovation hub lobby. Analyze the scene and respond in EXACTLY this JSON format, with no extra text before or after:
 
-Write your response as plain text using this structure:
+{
+  "title": "<A catchy, creative 5-8 word title for this scene that evokes innovation, technology, or a modern tech hub. Be descriptive and engaging. Examples: 'Where Ideas Converge in the Tech Atrium', 'Innovation Hub Buzzing with Creative Energy'>",
+  "scene": "<A 3-5 sentence factual paragraph describing the setting (floor, walls, furniture, lighting), whether people are present and what they appear to be doing, and any notable objects. Write in paragraph form. Be concise.>"
+}
 
-CAPTION: [One witty sentence about the scene with tech/IT humor]
-
-ENVIRONMENT: [Describe the lobby setting, lighting, architecture]
-
-PEOPLE: [Describe all people visible, where they are, what they are doing. If no people, say so.]
-
-DETAILS: [Notable objects, signs, furniture, screens]
-
-STATUS: [Is the lobby busy or quiet? Any notable activity?]
-
-PEOPLE COUNT: [Total number of people visible as a single number]
+RULES:
+- Be factual. Describe ONLY what is visible.
+- Do NOT invent objects or people not clearly present.
+- Return ONLY valid JSON. No markdown, no explanation.

@@ -388,8 +388,8 @@ class FrameAnalysisService {
                 ]
               }
             ],
-            max_tokens: 1024,
-            temperature: 0.7
+            max_tokens: 300,
+            temperature: 0.0
           })
         });
       } finally {
@@ -418,8 +418,8 @@ class FrameAnalysisService {
                 ]
               }
             ],
-            max_tokens: 1024,
-            temperature: 0.7
+            max_tokens: 300,
+            temperature: 0.0
           })
         });
         const retryData = await retryResponse.json();
@@ -455,13 +455,27 @@ class FrameAnalysisService {
     if (jsonBody.startsWith('{')) {
       try {
         const parsed = JSON.parse(jsonBody);
+        if (parsed.title && parsed.scene) {
+          // New format: { title, scene, alerts }
+          const result = this.buildResponseFromTitleSceneJSON(parsed);
+          return result;
+        }
         if (parsed.scene_description) {
-          return this.buildResponseFromJSON(parsed);
+          const result = this.buildResponseFromJSON(parsed);
+          return this.postProcessSLMResponse(result, text);
         }
       } catch {
         // JSON parse failed — may be truncated. Try regex extraction.
+        // Try new { title, scene } format first
+        const titleMatch = jsonBody.match(/"title"\s*:\s*"([\s\S]*?)(?:"\s*[,}]|$)/);
+        const sceneMatch = jsonBody.match(/"scene"\s*:\s*"([\s\S]*?)(?:"\s*[,}]|$)/);
+        if (titleMatch && sceneMatch) {
+          const title = titleMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"');
+          const scene = sceneMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"');
+          return this.buildResponseFromTitleSceneJSON({ title, scene, alerts: {} });
+        }
         const partialResult = this.buildResponseFromPartialJSON(jsonBody);
-        if (partialResult) return partialResult;
+        if (partialResult) return this.postProcessSLMResponse(partialResult, text);
       }
     }
 
@@ -483,6 +497,36 @@ class FrameAnalysisService {
       lower.includes("i cannot directly view") ||
       lower.includes("i'm not able to view images")
     );
+  }
+
+  // Build structured response from the new { title, scene, alerts } JSON format
+  buildResponseFromTitleSceneJSON(parsed) {
+    const title = parsed.title || 'Bank Lobby Scene';
+    const scene = parsed.scene || '';
+    const alerts = parsed.alerts || {};
+
+    // Build alert message from alerts object
+    const alertParts = [];
+    if (alerts.wheelchair_or_walking_stick) alertParts.push('Person with wheelchair or walking stick detected');
+    if (alerts.child_visible) alertParts.push('Child detected in the lobby');
+    const alertMessage = alertParts.length > 0 ? alertParts.join('; ') : null;
+
+    const htmlCaption = `<span class="ai-caption">${title}</span>`;
+    const sceneSection = `**🎬 Scene Analysis:**\n${scene}`;
+    const sceneDescription = `${htmlCaption}\n\n${sceneSection}`;
+
+    return {
+      timestamp: new Date().toISOString(),
+      total_persons: 0,
+      persons_near_doors: 0,
+      persons_at_reception: 0,
+      persons_in_other_areas: 0,
+      children_detected: alerts.child_visible ? 1 : 0,
+      persons_needing_assistance: alerts.wheelchair_or_walking_stick ? 1 : 0,
+      scene_description: sceneDescription,
+      alert_message: alertMessage,
+      _edgeMode: true
+    };
   }
 
   // Build structured response from a fully-parsed JSON object
@@ -533,7 +577,7 @@ class FrameAnalysisService {
       caption = captionMatch[1].trim();
     } else {
       // Fallback: use the first non-empty line that isn't a section header
-      const firstLine = text.split('\n').find(l => l.trim().length > 10 && !l.startsWith('ENVIRONMENT') && !l.startsWith('PEOPLE'));
+      const firstLine = text.split('\n').find(l => l.trim().length > 10 && !l.startsWith('ENVIRONMENT') && !l.startsWith('PEOPLE') && !l.startsWith('SCENE'));
       if (firstLine) caption = firstLine.trim();
     }
 
@@ -550,11 +594,12 @@ class FrameAnalysisService {
       { key: 'ENVIRONMENT:', emoji: '🏢', title: 'Location & Environment' },
       { key: 'PEOPLE:', emoji: '👥', title: 'People & Activities' },
       { key: 'DETAILS:', emoji: '🔍', title: 'Notable Elements' },
-      { key: 'STATUS:', emoji: '📊', title: 'Overall Status' }
+      { key: 'STATUS:', emoji: '📊', title: 'Overall Status' },
+      { key: 'SCENE:', emoji: '🎬', title: 'Scene Analysis' }
     ];
 
     for (const sec of sectionMap) {
-      const regex = new RegExp(`^${sec.key}\\s*(.+?)(?=^(?:ENVIRONMENT:|PEOPLE:|DETAILS:|STATUS:|PEOPLE COUNT:)|$)`, 'ms');
+      const regex = new RegExp(`^${sec.key}\\s*(.+?)(?=^(?:ENVIRONMENT:|PEOPLE:|DETAILS:|STATUS:|SCENE:|PEOPLE COUNT:)|$)`, 'ms');
       const match = text.match(regex);
       if (match && match[1].trim()) {
         sections.push(`**${sec.emoji} ${sec.title}:**\n${match[1].trim()}`);
@@ -568,7 +613,7 @@ class FrameAnalysisService {
 
     const body = sections.length > 0
       ? sections.join('\n\n')
-      : text.replace(/^CAPTION:.*$/m, '').replace(/PEOPLE COUNT:.*$/im, '').trim();
+      : text.replace(/^CAPTION:.*$/m, '').replace(/^SCENE:.*$/m, '').replace(/PEOPLE COUNT:.*$/im, '').trim();
 
     const sceneDescription = `${htmlCaption}\n\n${body}`;
 

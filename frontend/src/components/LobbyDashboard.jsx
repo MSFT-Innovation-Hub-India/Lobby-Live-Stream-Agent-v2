@@ -597,6 +597,23 @@ export default function LobbyLiveStreamDashboard() {
       if (match) result[section.key] = match[1].trim();
     }
     
+    // Fallback: if no config-keyed sections matched (e.g. simplified edge output),
+    // extract any **emoji Title:** section and map to the first sceneSections key
+    if (Object.keys(result).length === 0) {
+      const genericMatch = decodedText.match(/\*\*[^\n*]+\*\*:?\s*[\r\n]+([\s\S]*?)(?=\*\*|$)/);
+      if (genericMatch && genericMatch[1].trim()) {
+        const firstKey = sceneSections[0]?.key || 'overview';
+        result[firstKey] = genericMatch[1].trim();
+      } else {
+        // Last resort: use everything after the caption as content
+        const afterCaption = decodedText.replace(/<span[^>]*>.*?<\/span>/g, '').replace(/\*\*[^*]+\*\*:?/g, '').trim();
+        if (afterCaption) {
+          const firstKey = sceneSections[0]?.key || 'overview';
+          result[firstKey] = afterCaption;
+        }
+      }
+    }
+    
     return Object.keys(result).length > 0 ? result : null;
   };
 
@@ -861,9 +878,9 @@ export default function LobbyLiveStreamDashboard() {
           >
             <div className="grid grid-cols-3 gap-3">
               {quickStats.map((s) => (
-                <div key={s.label} className="rounded-xl border border-white/10 bg-white/5 p-3">
+                <div key={s.label} className="rounded-xl border border-white/10 bg-white/5 p-3 min-w-0">
                   <div className="text-[10px] uppercase tracking-wide text-slate-400">{s.label}</div>
-                  <div className="text-lg font-semibold text-slate-50">{s.value}</div>
+                  <div className="text-lg font-semibold text-slate-50 truncate">{s.value}</div>
                 </div>
               ))}
             </div>
@@ -898,9 +915,9 @@ export default function LobbyLiveStreamDashboard() {
                       : 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'
                   } disabled:cursor-not-allowed`}
                 >
-                  <Cpu className="h-4 w-4" />
-                  <div className="text-left">
-                    <div className="font-medium">Phi-4-multimodal-instruct</div>
+                  <Cpu className="h-4 w-4 shrink-0" />
+                  <div className="text-left min-w-0">
+                    <div className="font-medium truncate">Phi-4-multimodal</div>
                     <div className="text-[10px] opacity-70">Local Model</div>
                   </div>
                 </button>

@@ -109,7 +109,7 @@ const AnalyzedFrames = ({ refreshTrigger }) => {
       const trimmedLine = line.trim();
       
       // Check for markdown headers (### Header or **Header:**)
-      if (trimmedLine.match(/^#{1,3}\s+\*?\*?(.+?)\*?\*?:?$/) || trimmedLine.match(/^\*\*[🏢🏛️👥👤🎨💡🚪🪴✨🔍📍🎯💼🏃📊].+?\*\*:?$/)) {
+      if (trimmedLine.match(/^#{1,3}\s+\*?\*?(.+?)\*?\*?:?$/) || trimmedLine.match(/^\*\*[🏢🏛️👥👤🎨💡🚪🪴✨🔍📍🎯💼🏃📊🎬🏦].+?\*\*:?$/)) {
         if (currentSection.content.length > 0 || currentSection.items.length > 0) {
           sections.push({ ...currentSection });
         }

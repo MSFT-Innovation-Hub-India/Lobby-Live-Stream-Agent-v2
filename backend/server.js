@@ -16,6 +16,12 @@ app.use('/stream', (req, res, next) => {
     'Pragma': 'no-cache',
     'Expires': '0'
   });
+  // Set correct MIME types for HLS
+  if (req.path.endsWith('.m3u8')) {
+    res.set('Content-Type', 'application/vnd.apple.mpegurl');
+  } else if (req.path.endsWith('.ts')) {
+    res.set('Content-Type', 'video/mp2t');
+  }
   next();
 }, express.static(path.join(__dirname, 'stream')));
 app.use('/captures', express.static(path.join(__dirname, 'captures')));

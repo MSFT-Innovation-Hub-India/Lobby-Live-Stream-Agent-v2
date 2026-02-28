@@ -147,19 +147,29 @@ export default function LobbyLiveStreamDashboard() {
         xhrSetup: (xhr, url) => {
           xhr.withCredentials = false;
         },
-        liveSyncDurationCount: 3,
-        liveMaxLatencyDurationCount: 8,
+        // Live sync: stay 4 segments behind live edge for smooth playback
+        liveSyncDurationCount: 4,
+        liveMaxLatencyDurationCount: 12,
         liveDurationInfinity: true,
-        maxBufferLength: 10,
-        maxMaxBufferLength: 30,
-        maxBufferSize: 30 * 1000 * 1000,
+        // Generous buffers to prevent stalls
+        maxBufferLength: 30,
+        maxMaxBufferLength: 60,
+        maxBufferSize: 60 * 1000 * 1000,
         maxBufferHole: 0.5,
+        // Prefetch next fragment while current one is loading
+        startFragPrefetch: true,
+        // Faster high-buffer watchdog to prevent drift
+        highBufferWatchdogPeriod: 3,
+        // Timeouts and retries
         manifestLoadingTimeOut: 10000,
-        manifestLoadingMaxRetry: 6,
+        manifestLoadingMaxRetry: 10,
+        manifestLoadingRetryDelay: 500,
         levelLoadingTimeOut: 10000,
-        levelLoadingMaxRetry: 6,
-        fragLoadingTimeOut: 10000,
-        fragLoadingMaxRetry: 6,
+        levelLoadingMaxRetry: 10,
+        levelLoadingRetryDelay: 500,
+        fragLoadingTimeOut: 20000,
+        fragLoadingMaxRetry: 10,
+        fragLoadingRetryDelay: 500,
       });
 
       hls.loadSource(streamUrl);
@@ -174,6 +184,16 @@ export default function LobbyLiveStreamDashboard() {
 
       hls.on(Hls.Events.ERROR, (event, data) => {
         console.error('HLS Error:', data.type, data.details);
+
+        // Handle non-fatal buffer stalls by seeking to live edge
+        if (!data.fatal && data.details === Hls.ErrorDetails.BUFFER_STALLED_ERROR) {
+          console.log('Buffer stalled - seeking to live edge');
+          if (hls.liveSyncPosition != null) {
+            video.currentTime = hls.liveSyncPosition;
+          }
+          return;
+        }
+
         if (data.fatal) {
           console.error('HLS Fatal Error - attempting recovery');
           switch(data.type) {
@@ -194,15 +214,45 @@ export default function LobbyLiveStreamDashboard() {
               }, 1000);
               break;
             default:
-              console.error('Unrecoverable error');
+              console.error('Unrecoverable error - reinitializing player');
+              setTimeout(() => {
+                if (hlsRef.current) {
+                  hls.destroy();
+                  hlsRef.current = null;
+                  // Re-trigger the effect by briefly clearing and resetting streamUrl
+                  const savedUrl = streamUrl;
+                  setStreamUrl(null);
+                  setTimeout(() => setStreamUrl(savedUrl), 500);
+                }
+              }, 2000);
               break;
           }
         }
       });
 
+      // When video stalls (waiting), seek closer to live edge after a short delay
+      let stallTimer = null;
+      const onWaiting = () => {
+        if (stallTimer) clearTimeout(stallTimer);
+        stallTimer = setTimeout(() => {
+          if (hls && hls.liveSyncPosition != null && video.paused === false) {
+            const drift = hls.liveSyncPosition - video.currentTime;
+            if (drift > 4) {
+              console.log(`Video stalled, drifted ${drift.toFixed(1)}s behind live - seeking forward`);
+              video.currentTime = hls.liveSyncPosition;
+            }
+          }
+        }, 2000);
+      };
+      video.addEventListener('waiting', onWaiting);
+
       hlsRef.current = hls;
 
-      return cleanup;
+      return () => {
+        video.removeEventListener('waiting', onWaiting);
+        if (stallTimer) clearTimeout(stallTimer);
+        cleanup();
+      };
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
       console.log('Using native HLS support');
       video.src = streamUrl;

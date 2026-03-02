@@ -389,7 +389,7 @@ class FrameAnalysisService {
               }
             ],
             max_tokens: 300,
-            temperature: 0.0
+            temperature: 0.4
           })
         });
       } finally {
@@ -419,7 +419,7 @@ class FrameAnalysisService {
               }
             ],
             max_tokens: 300,
-            temperature: 0.0
+            temperature: 0.4
           })
         });
         const retryData = await retryResponse.json();

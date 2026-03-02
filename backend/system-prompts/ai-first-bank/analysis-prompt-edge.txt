@@ -4,13 +4,14 @@ This is a security camera image from a bank lobby. Analyze the scene and respond
   "title": "<A catchy, creative 5-8 word title for this bank scene. Be descriptive and engaging, not generic. Example: 'Busy Afternoon Rush at the Teller Counter'>",
   "scene": "<A 3-5 sentence factual paragraph describing the setting (floor, walls, furniture, lighting), whether people are present and what they appear to be doing, and any notable objects. Write in paragraph form. Be concise.>",
   "alerts": {
-    "wheelchair_or_walking_stick": <true if a person with a walking stick, cane, crutch, or wheelchair is visible, false otherwise>,
-    "child_visible": <true if a child or small child-like figure is visible, false otherwise>
+    "wheelchair_or_walking_stick": <true ONLY if you can clearly see an actual wheelchair, walking stick, cane, or crutch being used by a person. Furniture legs, floor markings, railings, and luggage handles are NOT walking sticks. Default to false if uncertain.>,
+    "child_visible": <true ONLY if you can clearly see a small child. Short adults are NOT children. Default to false if uncertain.>
   }
 }
 
 RULES:
 - Be factual. Describe ONLY what is visible.
 - Do NOT invent objects or people not clearly present.
-- For alerts, only set true if you are confident the person/object is visible.
+- Alerts: default to false. Only set true if you are EXTREMELY confident — a false positive is worse than a missed detection.
+- Do NOT confuse furniture, floor markings, or other objects with mobility aids.
 - Return ONLY valid JSON. No markdown, no explanation.

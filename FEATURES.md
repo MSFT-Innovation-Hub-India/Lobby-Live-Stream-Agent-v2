@@ -25,18 +25,18 @@ Complete feature list and technical capabilities of **AI Eye - Hub Lobby Live St
 ---
 
 ### 2. AI-Powered Frame Analysis ✅
-**Description**: Automatic capture and intelligent analysis of video frames using **dual-mode AI** — cloud (Azure OpenAI GPT-4o) or edge (vLLM + Phi-4-multimodal-instruct on local GPU)
+**Description**: Automatic capture and intelligent analysis of video frames using **dual-mode AI** — cloud (Azure OpenAI GPT-4o) or edge (vLLM + Qwen2.5-VL-7B-Instruct-AWQ on local GPU)
 
 **Technical Details**:
 - Captures one frame every 60 seconds
 - Independent capture (doesn't affect live stream)
 - Base64 image encoding
-- **Edge mode**: vLLM OpenAI-compatible API with Phi-4-multimodal-instruct
+- **Edge mode**: vLLM OpenAI-compatible API with Qwen2.5-VL-7B-Instruct-AWQ
 - **Cloud mode**: Azure OpenAI vision API (GPT-4o or GPT-4o-mini)
 - Scenario-based prompt system (`hub-lobby-default`, `ai-first-bank`)
 - Model refusal detection with automatic retry (edge mode)
-- Anti-hallucination guardrails with 90% confidence threshold
-- Temperature 0.7 (edge) / 0.3 (cloud)
+- Anti-hallucination guardrails with strict alert confidence thresholds
+- Temperature 0.4 (edge) / 0.3 (cloud)
 - Dynamic model name display from backend
 
 **User Benefits**:

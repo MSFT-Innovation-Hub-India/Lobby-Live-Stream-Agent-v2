@@ -10,7 +10,7 @@ Since this application requires an actual RTSP stream and an AI backend, here ar
 
 **Edge Mode (vLLM)**:
 - Requires NVIDIA GPU with ≥15 GB VRAM
-- vLLM running with Phi-4-multimodal-instruct
+- vLLM running with Qwen2.5-VL-7B-Instruct-AWQ
 - Set `MODEL_MODE=edge` in `.env`
 - See [VLLM_DEPLOYMENT.md](VLLM_DEPLOYMENT.md) for setup
 
@@ -115,7 +115,7 @@ Expected output:
    - ✅ Live video should start playing within 3-5 seconds
    - ✅ Status should change to "Streaming"
    - ✅ Countdown timer starts at 60 seconds
-   - ✅ Model name appears in header (e.g., "Phi-4-multimodal" or "gpt-4o-mini")
+   - ✅ Model name appears in header (e.g., "Qwen2.5-VL-7B" or "gpt-4o-mini")
 
 5. **Wait for Frame Capture**: After 60 seconds, test:
    - ✅ First frame appears in gallery below
@@ -176,7 +176,7 @@ To test streaming without AI analysis:
 3. Start the application and stream
 4. After 60 seconds, verify:
    - ✅ Frame is analyzed (not a refusal message)
-   - ✅ Model name shows "microsoft/Phi-4-multimodal-instruct"
+   - ✅ Model name shows "Qwen/Qwen2.5-VL-7B-Instruct-AWQ"
    - ✅ Response format matches scenario (markdown for default, JSON for banking)
 5. Test scenario switching:
    - Change `PROMPT_PROFILE=ai-first-bank` in `.env`, restart backend
@@ -267,7 +267,7 @@ curl -X POST http://localhost:3001/api/stream/stop
 - Backend memory: ~100-200 MB
 - Frontend memory: ~50-100 MB
 - FFmpeg CPU: 5-20% (one stream)
-- vLLM GPU memory: ~8.8 GB (Phi-4-multimodal FP16)
+- vLLM GPU memory: ~6.6 GB (Qwen2.5-VL-7B-Instruct-AWQ)
 - Network: Depends on stream quality
 
 ## Test Checklist
@@ -305,7 +305,7 @@ This will help users understand the application before setting it up themselves.
 ---
 
 **Note**: For complete testing with AI analysis, you must have either:
-- **Edge mode**: vLLM running with Phi-4-multimodal-instruct on a supported GPU
+- **Edge mode**: vLLM running with Qwen2.5-VL-7B-Instruct-AWQ on a supported GPU
 - **Cloud mode**: Valid Azure OpenAI credentials and GPT-4o deployment
 
 See [VLLM_DEPLOYMENT.md](VLLM_DEPLOYMENT.md) for edge setup or configure Azure credentials in `.env` for cloud mode.

@@ -1,16 +1,16 @@
 # Backend - AI Eye Hub Lobby Live Stream Agent v2
 
-Backend server for RTSP streaming and AI-powered frame analysis. Supports **dual-mode** inference: **cloud** (Azure OpenAI GPT-4o) or **edge** (vLLM with Phi-4-multimodal-instruct on local GPU).
+Backend server for RTSP streaming and AI-powered frame analysis. Supports **dual-mode** inference: **cloud** (Azure OpenAI GPT-4o) or **edge** (vLLM with Qwen2.5-VL-7B-Instruct-AWQ on local GPU).
 
 ## Features
 
-- **Dual-mode AI inference** — cloud (Azure OpenAI GPT-4o) or edge (vLLM + Phi-4-multimodal)
+- **Dual-mode AI inference** — cloud (Azure OpenAI GPT-4o) or edge (vLLM + Qwen2.5-VL-7B)
 - **RTSP to HLS conversion** using FFmpeg with optimized settings (2s segments, CBR 2500k, GOP 60)
 - **Independent frame capture** every 60 seconds (doesn't affect live stream)
 - **Scenario-based prompt system** — switchable prompt profiles (`hub-lobby-default`, `ai-first-bank`)
 - **Auto-detect response format** — parses JSON (banking scenario) or markdown (default scenario)
 - **Model refusal detection** — detects text-mode refusals with automatic retry
-- **Anti-hallucination guardrails** — 90% confidence threshold, false-positive warnings in prompts
+- **Anti-hallucination guardrails** — strict alert confidence thresholds, false-positive warnings in prompts
 - **Memory management** with automatic cleanup (max 10 frames)
 - **RESTful API** for stream control and frame retrieval
 - **Status endpoint** with model name exposure
@@ -36,7 +36,7 @@ cp .env.example .env
 PORT=3001
 MODEL_MODE=edge
 SLM_URL=http://localhost:8000
-VLLM_MODEL=microsoft/Phi-4-multimodal-instruct
+VLLM_MODEL=Qwen/Qwen2.5-VL-7B-Instruct-AWQ
 MAX_ANALYZED_FRAMES=10
 FRAME_CAPTURE_INTERVAL=60000
 PROMPT_PROFILE=hub-lobby-default
@@ -71,7 +71,7 @@ npm start
 
 ### Edge Mode (vLLM)
 - `SLM_URL`: vLLM server URL (default: `http://localhost:8000`)
-- `VLLM_MODEL`: Model name for vLLM (e.g. `microsoft/Phi-4-multimodal-instruct`)
+- `VLLM_MODEL`: Model name for vLLM (e.g. `Qwen/Qwen2.5-VL-7B-Instruct-AWQ`)
 
 ### Cloud Mode (Azure OpenAI)
 - `AZURE_OPENAI_ENDPOINT`: Your Azure OpenAI endpoint URL
@@ -98,7 +98,7 @@ npm start
       "capture": { 
         "isCapturing": true, 
         "frameCount": 5,
-        "deploymentName": "microsoft/Phi-4-multimodal-instruct",
+        "deploymentName": "Qwen/Qwen2.5-VL-7B-Instruct-AWQ",
         "modelMode": "edge"
       }
     }
@@ -125,7 +125,7 @@ See main README.md for complete API documentation.
 ### Frame Analysis Service (`services/frameAnalysisService.js`)
 - Captures frames every 60 seconds independently from stream
 - Encodes frames to Base64
-- **Edge mode**: Sends to vLLM OpenAI-compatible API (`/v1/chat/completions`) with Phi-4-multimodal
+- **Edge mode**: Sends to vLLM OpenAI-compatible API (`/v1/chat/completions`) with Qwen2.5-VL-7B
 - **Cloud mode**: Sends to Azure OpenAI GPT-4o Vision
 - Loads scenario-specific system prompts from `system-prompts/` directory
 - Auto-detects JSON vs markdown responses and parses accordingly
@@ -156,9 +156,9 @@ The backend supports switchable prompt profiles via the `PROMPT_PROFILE` env var
 - **Accurate People Counting**: Explicit instructions prevent false 0 counts
 - **Scenario-Aware Prompts**: Different prompt profiles for different use cases
 - **Model Refusal Handling**: Auto-detects and retries when model returns text-mode errors
-- **Anti-Hallucination Guardrails**: Confidence thresholds and false-positive warnings
-- **Temperature 0.7**: Balanced creativity and accuracy (edge mode)
-- **Max Tokens 1024**: Sufficient for detailed analysis without repetition
+- **Anti-Hallucination Guardrails**: Strict alert confidence thresholds and false-positive warnings
+- **Temperature 0.4**: Balanced variety and accuracy (edge mode)
+- **Max Tokens 300**: Concise JSON analysis without repetition
 
 ## Dependencies
 

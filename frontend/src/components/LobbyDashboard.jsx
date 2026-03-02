@@ -92,6 +92,7 @@ export default function LobbyLiveStreamDashboard() {
   const [rtspUrl, setRtspUrl] = useState(import.meta.env.VITE_DEFAULT_RTSP_URL || '');
   const [showRtspInput, setShowRtspInput] = useState(false);
   const [modelName, setModelName] = useState('GPT-4o');
+  const edgeModelLabel = modelName.split('/').pop().replace(/-Instruct|-AWQ|-GPTQ/gi, '').replace(/-$/, '') || 'Edge Model';
   const [selectedFrame, setSelectedFrame] = useState(null);
   
   // Scenario state
@@ -623,9 +624,9 @@ export default function LobbyLiveStreamDashboard() {
     () => [
       { label: "FPS", value: "30" },
       { label: "Resolution", value: "1280×720" },
-      { label: "Model", value: modelMode === 'edge' ? 'Phi-4-multimodal' : modelName },
+      { label: "Model", value: modelMode === 'edge' ? edgeModelLabel : modelName },
     ],
-    [modelName]
+    [modelName, edgeModelLabel]
   );
 
   // Format frames for display (show all available frames, sorted by newest first)
@@ -643,7 +644,7 @@ export default function LobbyLiveStreamDashboard() {
       timestamp,
       imageUrl: imageUrl,
       tags: modelMode === 'edge'
-        ? ['Phi-4-multimodal', ...(analysis?.alert_message ? ['Alert Triggered'] : ['No Alert'])]
+        ? [edgeModelLabel, ...(analysis?.alert_message ? ['Alert Triggered'] : ['No Alert'])]
         : [
             `${analysis?.[totalMetric.key] ?? 0} people`,
             ...metrics.map(m => `${m.label}: ${analysis?.[m.key] ?? 0}`)
@@ -917,7 +918,7 @@ export default function LobbyLiveStreamDashboard() {
                 >
                   <Cpu className="h-4 w-4 shrink-0" />
                   <div className="text-left min-w-0">
-                    <div className="font-medium truncate">Phi-4-multimodal</div>
+                    <div className="font-medium truncate">{edgeModelLabel}</div>
                     <div className="text-[10px] opacity-70">Local Model</div>
                   </div>
                 </button>
@@ -1342,7 +1343,7 @@ export default function LobbyLiveStreamDashboard() {
                 <div className="flex items-center gap-2 text-xs text-slate-400">
                   <span>Frame ID: {selectedFrame.id}</span>
                   <span>•</span>
-                  <span>Analyzed by {modelMode === 'edge' ? 'Phi-4-multimodal-instruct' : modelName}</span>
+                  <span>Analyzed by {modelName}</span>
                 </div>
                 <button
                   onClick={() => setSelectedFrame(null)}

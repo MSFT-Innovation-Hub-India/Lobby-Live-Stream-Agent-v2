@@ -411,7 +411,7 @@ PORT=3001
 # Model Mode
 MODEL_MODE=edge
 SLM_URL=http://localhost:8000
-VLLM_MODEL=microsoft/Phi-4-multimodal-instruct
+VLLM_MODEL=Qwen/Qwen2.5-VL-7B-Instruct-AWQ
 
 # Frame Analysis
 MAX_ANALYZED_FRAMES=10
@@ -546,7 +546,7 @@ This is the current production deployment running on an Azure Stack Edge VM with
 See [VLLM_DEPLOYMENT.md](VLLM_DEPLOYMENT.md) for the complete step-by-step guide covering:
 1. Python 3.11 + Miniconda installation
 2. vLLM v0.16+ installation in virtual environment
-3. Phi-4-multimodal-instruct model download
+3. Qwen2.5-VL-7B-Instruct-AWQ model download
 4. systemd user services for vLLM, backend, and frontend
 5. Linger configuration for persistence across SSH disconnects
 
@@ -566,7 +566,7 @@ journalctl --user -u lobby-backend -f
 ### Current Service Layout
 | Service | systemd Unit | Port | URL |
 |---------|-------------|------|-----|
-| vLLM (Phi-4-multimodal) | `vllm.service` | 8000 | `http://localhost:8000` |
+| vLLM (Qwen2.5-VL-7B) | `vllm.service` | 8000 | `http://localhost:8000` |
 | Backend (Node.js) | `lobby-backend.service` | 3001 | `http://localhost:3001` |
 | Frontend (React/Vite) | `lobby-frontend.service` | 5173 | `http://10.11.70.24:5173` |
 

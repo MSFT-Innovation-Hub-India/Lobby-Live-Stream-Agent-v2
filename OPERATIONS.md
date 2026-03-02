@@ -63,7 +63,7 @@ The app has **3 services** that must all be running:
 
 | # | Service | What it does | Port |
 |---|---------|-------------|------|
-| 1 | **vllm** | Runs the Phi-4 AI model on the GPU | 8000 |
+| 1 | **vllm** | Runs the Qwen2.5-VL-7B AI model on the GPU | 8000 |
 | 2 | **lobby-backend** | Node.js server (video streaming + AI analysis) | 3001 |
 | 3 | **lobby-frontend** | React web UI | 5173 |
 
@@ -300,7 +300,7 @@ nano ~/Lobby-Live-Stream-Agent-v2/.env
 |---------|-------------|---------------|
 | `MODEL_MODE` | `edge` (local GPU) or `cloud` (Azure) | `edge` |
 | `PROMPT_PROFILE` | Which scenario to use | `hub-lobby-default` or `ai-first-bank` |
-| `VLLM_MODEL` | Model name for edge mode | `microsoft/Phi-4-multimodal-instruct` |
+| `VLLM_MODEL` | Model name for edge mode | `Qwen/Qwen2.5-VL-7B-Instruct-AWQ` |
 | `FRAME_CAPTURE_INTERVAL` | Milliseconds between captures | `60000` (= 60 seconds) |
 | `VITE_API_BASE_URL` | Backend URL for the UI | `http://10.11.70.24:3001` |
 

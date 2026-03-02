@@ -21,7 +21,7 @@ Thank you for your interest in contributing! This document provides guidelines a
 - FFmpeg
 - Git
 - **AI backend** (one of):
-  - NVIDIA GPU + vLLM + Phi-4-multimodal (edge mode)
+  - NVIDIA GPU + vLLM + Qwen2.5-VL-7B (edge mode)
   - Azure OpenAI account (cloud mode, optional for AI features)
 
 ### Installation
@@ -112,7 +112,7 @@ backend/
 - **Frame modal opens on click**
 - **Countdown timer is visible and accurate**
 - **Status syncs with backend** (test by stopping backend)
-- **Model name displays correctly** (check against .env — e.g. `microsoft/Phi-4-multimodal-instruct` or `gpt-4o-mini`)
+- **Model name displays correctly** (check against .env — e.g. `Qwen/Qwen2.5-VL-7B-Instruct-AWQ` or `gpt-4o-mini`)
 - **Model mode displays correctly** (edge or cloud)
 - **HLS player doesn't re-initialize** during status polling
 - UI is responsive on mobile/tablet

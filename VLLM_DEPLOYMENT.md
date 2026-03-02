@@ -1,6 +1,6 @@
-# vLLM Deployment Guide — Azure Stack Edge with Phi-4 Multimodal
+# vLLM Deployment Guide — Azure Stack Edge with Qwen2.5-VL-7B
 
-Complete guide for deploying **vLLM** with **Microsoft Phi-4-multimodal-instruct** on an Azure Stack Edge appliance with a Tesla T4 GPU. This document covers the full journey from initial Ollama experiments to the final production-grade vLLM setup.
+Complete guide for deploying **vLLM** with **Alibaba Qwen2.5-VL-7B-Instruct-AWQ** on an Azure Stack Edge appliance with a Tesla T4 GPU. This document covers the full journey from initial Ollama experiments, through the Phi-4-multimodal-instruct phase, to the current Qwen2.5-VL production setup.
 
 ---
 
@@ -12,7 +12,7 @@ Complete guide for deploying **vLLM** with **Microsoft Phi-4-multimodal-instruct
 4. [Step 2 — Create Python Environment](#step-2--create-python-environment)
 5. [Step 3 — Install CUDA Toolkit](#step-3--install-cuda-toolkit)
 6. [Step 4 — Install vLLM](#step-4--install-vllm)
-7. [Step 5 — Download the Phi-4 Model](#step-5--download-the-phi-4-model)
+7. [Step 5 — Download the Model](#step-5--download-the-model)
 8. [Step 6 — Test vLLM Manually](#step-6--test-vllm-manually)
 9. [Step 7 — Create systemd Services](#step-7--create-systemd-services)
 10. [Step 8 — Configure the Backend](#step-8--configure-the-backend)
@@ -20,6 +20,7 @@ Complete guide for deploying **vLLM** with **Microsoft Phi-4-multimodal-instruct
 12. [Storage Layout](#storage-layout)
 13. [Troubleshooting](#troubleshooting)
 14. [Key Configuration Tweaks](#key-configuration-tweaks)
+15. [Model Migration History](#model-migration-history)
 
 ---
 
@@ -39,11 +40,11 @@ We initially tried **Ollama** as the local inference runtime because of its simp
 
 **vLLM** (v0.16.0) was selected for the following reasons:
 
-1. **Native HuggingFace support** — Loads any HuggingFace model directly without format conversion. This means Phi-4-multimodal-instruct works out of the box with `--trust-remote-code`.
+1. **Native HuggingFace support** — Loads any HuggingFace model directly without format conversion.
 2. **OpenAI-compatible API** — Exposes `/v1/chat/completions` endpoint, making it a drop-in replacement with minimal backend code changes.
 3. **Efficient GPU memory management** — PagedAttention allows precise control via `--gpu-memory-utilization 0.90`, maximizing the Tesla T4's 15 GB VRAM.
 4. **Async request handling** — Unlike our initial custom `serve.py` (which used synchronous `model.generate()` causing CUDA deadlocks), vLLM handles concurrent requests natively.
-5. **FP16 support** — Runs Phi-4 in float16 (~8.8 GB VRAM), leaving headroom for KV cache and concurrent requests.
+5. **Quantization support** — Runs AWQ-quantized models natively, enabling 7B-parameter models to fit comfortably in 15 GB VRAM (~6.6 GB for Qwen2.5-VL-7B-AWQ).
 6. **Production-grade** — Handles model loading, batching, health checks, and graceful shutdown without custom code.
 
 ---
@@ -166,7 +167,7 @@ python -c "import vllm; print(vllm.__version__)"
 
 ---
 
-## Step 5 — Download the Phi-4 Model
+## Step 5 — Download the Model
 
 Download the model weights to `/storage/huggingface`:
 
@@ -178,13 +179,15 @@ echo 'export HF_HOME=/storage/huggingface' >> ~/.bashrc
 # Create the directory
 mkdir -p /storage/huggingface
 
-# Download the model (~11 GB)
-# This happens automatically on first vLLM launch, but you can pre-download:
+# Download the Qwen2.5-VL-7B-Instruct-AWQ model (~7 GB)
 conda activate /storage/vllm-env
 python -c "
 from huggingface_hub import snapshot_download
-snapshot_download('microsoft/Phi-4-multimodal-instruct', cache_dir='/storage/huggingface')
+snapshot_download('Qwen/Qwen2.5-VL-7B-Instruct-AWQ', cache_dir='/storage/huggingface/hub')
 "
+```
+
+> **Note:** The previous model (Microsoft Phi-4-multimodal-instruct, ~11 GB) is retained in the HuggingFace cache at `/storage/huggingface/hub/models--microsoft--Phi-4-multimodal-instruct/` for fallback purposes. See [Model Migration History](#model-migration-history) for details on why we switched.
 ```
 
 ### Fix Permissions (if needed)
@@ -210,8 +213,8 @@ mkdir -p /storage/tmp
 
 # Start vLLM server
 python -m vllm.entrypoints.openai.api_server \
-  --model microsoft/Phi-4-multimodal-instruct \
-  --trust-remote-code \
+  --model Qwen/Qwen2.5-VL-7B-Instruct-AWQ \
+  --quantization awq \
   --dtype float16 \
   --max-model-len 4096 \
   --gpu-memory-utilization 0.90 \
@@ -230,10 +233,10 @@ curl http://localhost:8000/health
 curl -s http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "microsoft/Phi-4-multimodal-instruct",
+    "model": "Qwen/Qwen2.5-VL-7B-Instruct-AWQ",
     "messages": [{"role": "user", "content": "Say hello in 5 words"}],
     "max_tokens": 50,
-    "temperature": 0.7
+    "temperature": 0.4
   }' | python3 -m json.tool
 ```
 
@@ -264,7 +267,7 @@ mkdir -p ~/.config/systemd/user
 ```bash
 cat > ~/.config/systemd/user/vllm.service << 'EOF'
 [Unit]
-Description=vLLM Server - Phi-4 Multimodal
+Description=vLLM Server - Qwen2.5-VL-7B-Instruct-AWQ
 After=network.target
 
 [Service]
@@ -274,8 +277,8 @@ Environment=HF_HOME=/storage/huggingface
 Environment=TMPDIR=/storage/tmp
 Environment=PATH=/storage/vllm-env/bin:/usr/local/cuda/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/storage/vllm-env/bin/python -m vllm.entrypoints.openai.api_server \
-  --model microsoft/Phi-4-multimodal-instruct \
-  --trust-remote-code \
+  --model Qwen/Qwen2.5-VL-7B-Instruct-AWQ \
+  --quantization awq \
   --dtype float16 \
   --max-model-len 4096 \
   --gpu-memory-utilization 0.90 \
@@ -383,7 +386,7 @@ The Node.js backend needs to know about vLLM. Edit the `.env` file in the projec
 
 MODEL_MODE=edge
 SLM_URL=http://localhost:8000
-VLLM_MODEL=microsoft/Phi-4-multimodal-instruct
+VLLM_MODEL=Qwen/Qwen2.5-VL-7B-Instruct-AWQ
 FRAME_CAPTURE_INTERVAL=60000
 VITE_API_BASE_URL=http://<YOUR_VM_IP>:3001
 ```
@@ -403,8 +406,8 @@ The backend's `frameAnalysisService.js` was updated to:
 1. **Use vLLM's OpenAI-compatible API** — sends `POST /v1/chat/completions` with `image_url` content type instead of the Ollama API format.
 2. **Auto-detect response format** — `buildResponseFromSLM()` detects whether the model returned JSON (banking scenario) or plain markdown (hub-lobby scenario) and parses accordingly.
 3. **Refusal detection** — `isModelRefusal()` catches cases where the model claims "I cannot view images" and automatically retries the request once.
-4. **Temperature set to 0.7** — ensures varied, creative responses (was 0.1, which produced identical captions every time).
-5. **Max tokens set to 1024** — sufficient for the detailed JSON+markdown responses the banking prompt requires.
+4. **Temperature set to 0.4** — balances variety in titles/descriptions while maintaining accuracy for alert detection.
+5. **Max tokens set to 300** — sufficient for the concise JSON responses (`{title, scene, alerts}`) the current prompts produce.
 
 ---
 
@@ -437,13 +440,14 @@ All large assets reside on `/storage` (1 TB data disk):
 /storage/
 ├── miniconda3/          # 2.1 GB — Conda package manager
 ├── vllm-env/            # 11 GB  — Python 3.11 + vLLM + all dependencies
-├── huggingface/         # 11 GB  — Phi-4-multimodal-instruct model weights
+├── huggingface/         # ~18 GB — Model weights (both models cached)
 │   └── hub/
-│       └── models--microsoft--Phi-4-multimodal-instruct/
+│       ├── models--Qwen--Qwen2.5-VL-7B-Instruct-AWQ/     # ~7 GB (active)
+│       └── models--microsoft--Phi-4-multimodal-instruct/  # ~11 GB (retained for fallback)
 └── tmp/                 # Temp dir for vLLM (avoids filling root disk)
 ```
 
-**Total disk usage: ~24 GB on `/storage`**
+**Total disk usage: ~31 GB on `/storage`** (260 GB free remaining)
 
 ---
 
@@ -488,8 +492,9 @@ sudo loginctl enable-linger azureuser
 # Check GPU usage
 nvidia-smi
 
-# Phi-4 FP16 uses ~8.8 GB. With 0.90 utilization on 15 GB T4,
-# there's ~4.7 GB for KV cache. If issues occur:
+# Qwen2.5-VL-7B-AWQ uses ~6.6 GB. With 0.90 utilization on 15 GB T4,
+# there's ~7.2 GB for KV cache (80K tokens, 19.5x concurrency).
+# If issues occur:
 # - Reduce --max-model-len from 4096 to 2048
 # - Reduce --gpu-memory-utilization from 0.90 to 0.85
 ```
@@ -513,27 +518,29 @@ journalctl --user -u lobby-backend --no-pager -n 20
 
 These tweaks were discovered during deployment and are critical for production quality:
 
-### 1. Temperature: 0.1 → 0.7
+### 1. Temperature: 0.0 → 0.4
 
-**Problem:** With `temperature: 0.1`, the model produced identical captions for every frame — nearly deterministic output.
+**Problem:** With `temperature: 0.0`, the model produced identical titles for every frame — fully deterministic output. With `0.7`, responses were too creative and hallucinated.
 
-**Fix:** Raised to `0.7` for creative, varied responses while maintaining coherence.
+**Fix:** Set to `0.4` for moderate variety in titles while maintaining factual accuracy for scene descriptions and alert detection.
 
-### 2. Max Tokens: 512 → 1024
+### 2. Max Tokens: 512 → 300
 
-**Problem:** The banking scenario's JSON response with embedded markdown was frequently truncated at 512 tokens.
+**Problem:** The initial banking scenario prompt required verbose responses that were frequently truncated at 512 tokens. After prompt simplification to a concise JSON format (`{title, scene, alerts}`), 300 tokens is sufficient.
 
-**Fix:** Increased to `1024` to accommodate the full structured response.
+**Fix:** Set to `300` to match the streamlined prompt format.
 
 ### 3. Anti-Hallucination Prompt Engineering
 
-**Problem:** The model hallucinated detections — claiming to see walking sticks when none were present (misidentifying plant stems and furniture legs).
+**Problem:** The initial Phi-4-multimodal model hallucinated detections — claiming to see walking sticks when none were present (misidentifying yellow floor markings, plant stems, and furniture legs as mobility aids).
 
-**Fix:** Rewrote the banking scenario prompt with explicit accuracy rules:
-- "Objects like plant stems, umbrella stands, furniture legs are NOT walking sticks"
-- "A person must be CLEARLY HOLDING a mobility aid for it to count"
-- "FALSE POSITIVES are worse than missed detections"
-- Default to `alert_required: false` unless 90%+ confident
+**Fix (prompt):** Rewrote the banking scenario prompt with strict alert rules:
+- "Set true ONLY if you can clearly see an actual wheelchair, walking stick, cane, or crutch being used by a person"
+- "Furniture legs, floor markings, railings, and luggage handles are NOT walking sticks"
+- "Default to false if uncertain"
+- "A false positive is worse than a missed detection"
+
+**Fix (model):** Migrated from Phi-4-multimodal-instruct (5.6B parameters) to Qwen2.5-VL-7B-Instruct-AWQ (7.6B parameters, 4-bit quantized). Qwen2.5-VL has stronger visual grounding, better spatial reasoning, and more reliable instruction following for structured JSON output. See [Model Migration History](#model-migration-history).
 
 ### 4. Few-Shot Example Removal
 
@@ -566,16 +573,92 @@ These tweaks were discovered during deployment and are critical for production q
 │                                                     │
 │  ┌──────────┐    ┌──────────┐    ┌──────────────┐   │
 │  │ Frontend │    │ Backend  │    │    vLLM      │   │
-│  │ Vite     │◄──►│ Node.js  │───►│ Phi-4-multi  │   │
-│  │ :5173    │    │ :3001    │    │ :8000        │   │
+│  │ Vite     │◄──►│ Node.js  │───►│ Qwen2.5-VL  │   │
+│  │ :5173    │    │ :3001    │    │ 7B-AWQ       │   │
+│  │          │    │          │    │ :8000        │   │
 │  └──────────┘    └──────────┘    └──────┬───────┘   │
 │                       │                 │           │
 │                       │          ┌──────▼───────┐   │
 │                  ┌────▼────┐     │  Tesla T4    │   │
 │                  │  RTSP   │     │  15 GB VRAM  │   │
-│                  │  Camera │     └──────────────┘   │
-│                  └─────────┘                        │
+│                  │  Camera │     │  ~6.6 GB used│   │
+│                  └─────────┘     └──────────────┘   │
 └─────────────────────────────────────────────────────┘
 ```
 
 All three components run as **systemd user services** with `linger` enabled — they survive SSH disconnects and VS Code Remote session closures, and auto-restart on failure.
+
+---
+
+## Model Migration History
+
+### Phase 1: Microsoft Phi-4-multimodal-instruct (5.6B parameters)
+
+**Deployed:** Initial setup  
+**Size:** ~11 GB (float16)  
+**VRAM Usage:** ~8.8 GB on Tesla T4  
+
+Phi-4-multimodal-instruct was the initial edge model selected for its Microsoft provenance and multimodal capabilities. However, several issues emerged in production:
+
+#### Issues Encountered
+
+1. **Repetitive titles** — At temperature 0.0 (deterministic), the model produced the same title (e.g., "Lush Bank Lobby: A Glimpse of Serenity") for nearly every frame from the same camera angle. Even raising temperature didn't fully resolve this.
+
+2. **Alert hallucination** — The model frequently reported `wheelchair_or_walking_stick: true` when no mobility aids were present. It misidentified yellow floor markings, furniture legs, and other objects as walking sticks. As a 5.6B parameter model, it lacked the visual reasoning to reliably distinguish small objects in CCTV footage.
+
+3. **Inconsistent instruction following** — The model sometimes returned responses outside the requested JSON format, required `--trust-remote-code`, and needed extensive prompt engineering to produce structured output.
+
+4. **High VRAM usage** — At ~8.8 GB in float16, it left only ~4.7 GB for KV cache, limiting concurrent request capacity.
+
+#### What We Tried
+- Temperature adjustments: 0.0, 0.3, 0.4, 0.7 — lower values caused repetition, higher values increased hallucination
+- Prompt rewrites: simplified JSON format, strict accuracy rules, "default to false" instructions
+- Max tokens reduction: 1024 → 300 to prevent verbose wandering
+- Post-processing: added `postProcessSLMResponse()` for caption formatting
+
+These mitigations reduced but did not eliminate the core issues.
+
+### Phase 2: Alibaba Qwen2.5-VL-7B-Instruct-AWQ (Current)
+
+**Deployed:** March 2, 2026  
+**Model:** `Qwen/Qwen2.5-VL-7B-Instruct-AWQ`  
+**Creator:** Alibaba Cloud Qwen Team (通义千问)  
+**Architecture:** Qwen2.5-VL (7.6B parameters, AWQ 4-bit quantized)  
+**Size:** ~7 GB (AWQ quantized weights)  
+**VRAM Usage:** ~6.6 GB on Tesla T4  
+**KV Cache:** 4.27 GB available, 80K token capacity, 19.5x concurrency at 4096 tokens/request  
+**License:** Apache 2.0  
+
+#### Why Qwen2.5-VL-7B
+
+1. **Stronger visual grounding** — Better at identifying specific objects, people, and spatial relationships in images. More reliable for "is X present?" detection tasks.
+2. **Better instruction following** — Consistently produces valid JSON in the requested format without needing `--trust-remote-code`.
+3. **Lower VRAM footprint** — AWQ 4-bit quantization reduces model memory from 11 GB (Phi-4 FP16) to 6.6 GB, nearly doubling available KV cache.
+4. **Higher concurrency** — 19.5x concurrent capacity vs ~4.7x with Phi-4, making it more resilient under load.
+5. **Native vLLM support** — First-class support in vLLM without `--trust-remote-code`.
+
+#### Migration Steps Performed
+
+1. Downloaded model: `snapshot_download('Qwen/Qwen2.5-VL-7B-Instruct-AWQ')` → `/storage/huggingface/hub/`
+2. Backed up original vLLM service: `cp vllm.service vllm.service.phi4.bak`
+3. Updated `vllm.service`: changed `--model`, added `--quantization awq`, removed `--trust-remote-code`
+4. Updated `.env`: `VLLM_MODEL=Qwen/Qwen2.5-VL-7B-Instruct-AWQ`
+5. Reloaded systemd: `systemctl --user daemon-reload && systemctl --user restart vllm`
+6. Updated frontend: removed hardcoded "Phi-4-multimodal" references, now dynamically displays model name from backend
+7. Restarted all services: `systemctl --user restart lobby-backend lobby-frontend`
+
+#### Reverting to Phi-4 (if needed)
+
+The Phi-4 model files and service backup are retained:
+
+```bash
+# Restore Phi-4 service file
+cp ~/.config/systemd/user/vllm.service.phi4.bak ~/.config/systemd/user/vllm.service
+
+# Update .env
+sed -i 's|VLLM_MODEL=.*|VLLM_MODEL=microsoft/Phi-4-multimodal-instruct|' ~/Lobby-Live-Stream-Agent-v2/.env
+
+# Reload and restart
+systemctl --user daemon-reload
+systemctl --user restart vllm lobby-backend
+```

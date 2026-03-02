@@ -58,7 +58,7 @@ This document describes the architecture of **AI Eye - Hub Lobby Live Stream Age
      ▼                           ▼         ▼
 ┌──────────────┐          ┌──────────┐  ┌──────────────────┐
 │ RTSP Camera  │          │  vLLM    │  │  Azure OpenAI    │
-│   Source     │          │ Phi-4    │  │   GPT-4o Vision  │
+│   Source     │          │ Qwen2.5  │  │   GPT-4o Vision  │
 └──────────────┘          │(Edge GPU)│  │   (Cloud)        │
                           └──────────┘  └──────────────────┘
 ```
@@ -82,7 +82,7 @@ This document describes the architecture of **AI Eye - Hub Lobby Live Stream Age
 - `streamUrl`: HLS playlist URL
 - `analyzedFrames`: Array of AI-analyzed frames (max 10)
 - `seconds`: Countdown timer for next capture
-- `modelName`: AI model name from backend (e.g. `microsoft/Phi-4-multimodal-instruct` or `gpt-4o-mini`)
+- `modelName`: AI model name from backend (e.g. `Qwen/Qwen2.5-VL-7B-Instruct-AWQ` or `gpt-4o-mini`)
 - `modelMode`: Current inference mode (`edge` or `cloud`)
 - `slmHealthy`: Health status of the edge vLLM server
 - `scenarios`: Available prompt profiles fetched from backend
@@ -209,7 +209,7 @@ ffmpeg [
 ```javascript
 // Uses OpenAI-compatible API provided by vLLM
 const response = await axios.post(`${SLM_URL}/v1/chat/completions`, {
-  model: 'microsoft/Phi-4-multimodal-instruct',
+  model: 'Qwen/Qwen2.5-VL-7B-Instruct-AWQ',
   messages: [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: [
@@ -217,7 +217,7 @@ const response = await axios.post(`${SLM_URL}/v1/chat/completions`, {
       { type: 'text', text: 'Analyze this frame.' }
     ]}
   ],
-  max_tokens: 1024,
+  max_tokens: 300,
   temperature: 0.7
 });
 ```
@@ -384,7 +384,7 @@ setStreamUrl(prevUrl => prevUrl === newUrl ? prevUrl : newUrl)
 **Benefit**: Single codebase supports multiple use cases
 
 ### 10. Model Refusal Detection
-**Problem**: Edge model (Phi-4) sometimes returns text-mode refusal instead of image analysis
+**Problem**: Edge model sometimes returns text-mode refusal instead of image analysis
 **Solution**: `isModelRefusal()` detects refusal patterns and auto-retries
 **Benefit**: Robust edge inference without manual intervention
 
@@ -520,7 +520,7 @@ Azure OpenAI: Managed service
        │
        ├─────► RTSP Camera
        │
-       ├─────► vLLM + Phi-4 (Edge, local GPU)
+       ├─────► vLLM + Qwen2.5-VL-7B-AWQ (Edge, local GPU)
        │
        └─────► Azure OpenAI (Cloud)
 ```
@@ -538,7 +538,8 @@ Azure OpenAI: Managed service
 │  systemd user services:                       │
 │  ┌─────────────┐  ┌────────────┐  ┌────────┐  │
 │  │ vLLM :8000  │  │ Backend    │  │Frontend│  │
-│  │ Phi-4-multi │  │ :3001      │  │ :5173  │  │
+│  │ Qwen2.5-VL  │  │ :3001      │  │ :5173  │  │
+│  │ 7B-AWQ      │  │            │  │        │  │
 │  └─────────────┘  └────────────┘  └────────┘  │
 └───────────────────────────────────────────────┘
 ```

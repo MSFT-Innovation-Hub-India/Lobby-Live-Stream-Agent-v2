@@ -5,7 +5,7 @@ Get up and running with **AI Eye - Hub Lobby Live Stream Agent v2** in minutes!
 ## What You'll Get
 
 ✅ **Live RTSP video streaming** in your browser  
-✅ **AI-powered frame analysis** with GPT-4o Vision (cloud) or Phi-4-multimodal (edge)  
+✅ **AI-powered frame analysis** with GPT-4o Vision (cloud) or Qwen2.5-VL-7B (edge)  
 ✅ **Eye-themed professional UI** with prominent countdown timer  
 ✅ **Scenario-based prompts** (Innovation Hub, Banking Security)  
 ✅ **Click-to-expand frame details** with full analysis  
@@ -16,7 +16,7 @@ Get up and running with **AI Eye - Hub Lobby Live Stream Agent v2** in minutes!
 1. **Node.js** (v18+) and **npm** installed
 2. **FFmpeg** installed (required for video streaming)
 3. **AI Backend** — choose one:
-   - **Edge mode**: NVIDIA GPU with ≥15 GB VRAM + vLLM + Phi-4-multimodal (see [VLLM_DEPLOYMENT.md](VLLM_DEPLOYMENT.md))
+   - **Edge mode**: NVIDIA GPU with ≥15 GB VRAM + vLLM + Qwen2.5-VL-7B (see [VLLM_DEPLOYMENT.md](VLLM_DEPLOYMENT.md))
    - **Cloud mode**: Azure OpenAI account with GPT-4o deployment
 
 ### Install FFmpeg
@@ -69,7 +69,7 @@ cp .env.example .env
 ```env
 MODEL_MODE=edge
 SLM_URL=http://localhost:8000
-VLLM_MODEL=microsoft/Phi-4-multimodal-instruct
+VLLM_MODEL=Qwen/Qwen2.5-VL-7B-Instruct-AWQ
 PROMPT_PROFILE=hub-lobby-default
 RTSP_URL=rtsp://your-camera-url
 ```
@@ -121,7 +121,7 @@ Expected output:
 ✓ Server is running on port 3001
 ✓ Stream endpoint: http://localhost:3001/api/stream
 ✓ Analysis endpoint: http://localhost:3001/api/analysis
-✓ Model mode: edge | Model: microsoft/Phi-4-multimodal-instruct
+✓ Model mode: edge | Model: Qwen/Qwen2.5-VL-7B-Instruct-AWQ
 ```
 
 ### Terminal 2: Start Frontend
@@ -189,7 +189,7 @@ rtsp://wowzaec2demo.streamlock.net/vod/mp4:BigBuckBunny_115k.mp4
 ✅ Video plays immediately  
 ✅ Countdown timer starts at 60 seconds  
 ✅ Status shows "Streaming"  
-✅ Model name appears in header (e.g., "Phi-4-multimodal" or "gpt-4o-mini")  
+✅ Model name appears in header (e.g., "Qwen2.5-VL-7B" or "gpt-4o-mini")  
 
 ### After 60 Seconds:
 ✅ First frame captured and analyzed  

@@ -105,7 +105,7 @@ The `/api/stream/status` endpoint now returns:
     "isCapturing": true,
     "frameCount": 5,
     "rtspUrl": "rtsp://...",
-    "deploymentName": "microsoft/Phi-4-multimodal-instruct",
+    "deploymentName": "Qwen/Qwen2.5-VL-7B-Instruct-AWQ",
     "modelMode": "edge",
     "failedCaptureCount": 0,
     "maxFailedCaptures": 5

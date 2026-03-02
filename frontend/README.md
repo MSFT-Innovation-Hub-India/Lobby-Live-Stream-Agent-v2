@@ -1,11 +1,11 @@
 # Frontend - AI Eye Hub Lobby Live Stream Agent v2
 
-Modern React-based frontend (JSX) for live RTSP streaming and AI-powered frame analysis visualization with eye-themed branding. Supports **dual-mode** operation: **cloud** (Azure OpenAI GPT-4o) and **edge** (vLLM with Phi-4-multimodal-instruct on local GPU).
+Modern React-based frontend (JSX) for live RTSP streaming and AI-powered frame analysis visualization with eye-themed branding. Supports **dual-mode** operation: **cloud** (Azure OpenAI GPT-4o) and **edge** (vLLM with Qwen2.5-VL-7B-Instruct-AWQ on local GPU).
 
 ## Features
 
 - **Live HLS video streaming** using HLS.js with stability improvements
-- **Dual-mode AI support** — displays edge (Phi-4-multimodal) or cloud (GPT-4o) model status
+- **Dual-mode AI support** — displays edge (Qwen2.5-VL-7B) or cloud (GPT-4o) model status
 - **Scenario switching** — select prompt profiles (Innovation Hub, AI-First Bank) from UI
 - **Eye-themed branding** with gradient logo and pulsing indicator
 - **Prominent countdown timer** (5XL font) visible from across the lobby
@@ -58,7 +58,7 @@ npm run build
 - `streamUrl`: HLS playlist URL  
 - `analyzedFrames`: Array of AI frames (max 10)
 - `seconds`: Countdown to next capture
-- `modelName`: AI model name from backend (e.g. `microsoft/Phi-4-multimodal-instruct` or `gpt-4o-mini`)
+- `modelName`: AI model name from backend (e.g. `Qwen/Qwen2.5-VL-7B-Instruct-AWQ` or `gpt-4o-mini`)
 - `modelMode`: Current inference mode (`edge` or `cloud`)
 - `slmHealthy`: Health status of the edge vLLM server
 - `scenarios`: Available prompt profiles fetched from backend
@@ -195,7 +195,7 @@ frontend/
 
 ✅ **JSX over TypeScript** - Simpler, faster development  
 ✅ **Unified Dashboard** - Single component instead of multiple  
-✅ **Dual-Mode AI** - Edge (vLLM + Phi-4) and Cloud (Azure OpenAI GPT-4o)  
+✅ **Dual-Mode AI** - Edge (vLLM + Qwen2.5-VL-7B) and Cloud (Azure OpenAI GPT-4o)  
 ✅ **Scenario Switching** - Select prompt profiles from UI  
 ✅ **Eye Branding** - Distinctive visual identity  
 ✅ **Prominent Countdown** - Visible from across lobby  

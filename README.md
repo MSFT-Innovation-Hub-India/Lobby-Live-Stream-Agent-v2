@@ -4,7 +4,7 @@
 
 **Real-time Intelligent Stream Analysis & Monitoring**
 
-*Dual-mode AI: Azure OpenAI GPT-4o (Cloud) · vLLM + Phi-4-multimodal (Edge)*
+*Dual-mode AI: Azure OpenAI GPT-4o (Cloud) · vLLM + Qwen2.5-VL-7B (Edge)*
 
 </div>
 
@@ -36,20 +36,20 @@
 
 The system supports **dual-mode AI inference**:
 - **Cloud mode**: Azure OpenAI GPT-4o Vision (requires internet and Azure subscription)
-- **Edge mode**: vLLM with Microsoft Phi-4-multimodal-instruct running on a local GPU (fully offline, no cloud dependency)
+- **Edge mode**: vLLM with Alibaba's Qwen2.5-VL-7B-Instruct-AWQ running on a local GPU (fully offline, no cloud dependency)
 
 ### What Does It Do?
 
 1. **Streams Live Video**: Displays real-time footage from RTSP cameras (like IP security cameras) in your web browser
 2. **Captures Frames**: Automatically takes snapshots every 60 seconds
-3. **AI Analysis**: Uses Azure OpenAI GPT-4o Vision (cloud) or vLLM + Phi-4-multimodal (edge) to analyze each frame
+3. **AI Analysis**: Uses Azure OpenAI GPT-4o Vision (cloud) or vLLM + Qwen2.5-VL-7B (edge) to analyze each frame
 4. **Scenario-Based Prompts**: Switchable prompt profiles for different environments (lobby monitoring, banking security)
 5. **Provides Insights**: Generates scene descriptions, people counts, and anomaly alerts
 6. **Displays Results**: Shows analyzed frames with detailed information in a modern, dark-theme interface
 
 ### Key Features
 
-- ✅ **Dual-Mode AI** — cloud (Azure OpenAI GPT-4o) or edge (vLLM + Phi-4-multimodal)
+- ✅ **Dual-Mode AI** — cloud (Azure OpenAI GPT-4o) or edge (vLLM + Qwen2.5-VL-7B)
 - ✅ **Live RTSP Streaming** with HLS conversion for browser compatibility
 - ✅ **AI-Powered Frame Analysis** with people counting and scene description
 - ✅ **Scenario Switching** — select prompt profiles from the UI (Innovation Hub, AI-First Bank)
@@ -270,12 +270,12 @@ Here's the complete flow of how video gets from your camera to your browser:
                     ▼ (edge)             ▼ (cloud)
               ┌──────────────┐    ┌──────────────┐
               │   vLLM       │    │ Azure OpenAI │
-              │ Phi-4-multi  │    │   GPT-4o     │
+              │ Qwen2.5-VL   │    │   GPT-4o     │
               │ (local GPU)  │    │              │
               └──────────────┘    └──────────────┘
 ```
 
-> **Current deployment**: Edge mode with vLLM + Phi-4-multimodal-instruct on Azure Stack Edge (Tesla T4 GPU). See [VLLM_DEPLOYMENT.md](VLLM_DEPLOYMENT.md) for full setup guide.
+> **Current deployment**: Edge mode with vLLM + Qwen2.5-VL-7B-Instruct-AWQ on Azure Stack Edge (Tesla T4 GPU). See [VLLM_DEPLOYMENT.md](VLLM_DEPLOYMENT.md) for full setup guide.
 
 ### Backend Architecture (Node.js + Express)
 
@@ -363,7 +363,7 @@ The frontend is the "client" that users see in their browser:
 
 3. **AI Backend** — choose one:
 
-   **Option A: Edge Mode (vLLM + Phi-4-multimodal)**
+   **Option A: Edge Mode (vLLM + Qwen2.5-VL-7B)**
    - NVIDIA GPU with ≥15 GB VRAM (e.g. Tesla T4)
    - Python 3.11+, vLLM v0.16+
    - See [VLLM_DEPLOYMENT.md](VLLM_DEPLOYMENT.md) for complete setup
@@ -419,7 +419,7 @@ PORT=3001
 # Model Mode
 MODEL_MODE=edge
 SLM_URL=http://localhost:8000
-VLLM_MODEL=microsoft/Phi-4-multimodal-instruct
+VLLM_MODEL=Qwen/Qwen2.5-VL-7B-Instruct-AWQ
 
 # Frame Analysis Configuration
 MAX_ANALYZED_FRAMES=10
@@ -517,7 +517,7 @@ http://10.11.70.24:5173
 
 | Service              | How it runs       | URL                           | Port |
 |----------------------|-------------------|-------------------------------|------|
-| vLLM (Phi-4-multi)   | systemd user service (`vllm.service`) | `http://localhost:8000` | 8000 |
+| vLLM (Qwen2.5-VL)   | systemd user service (`vllm.service`) | `http://localhost:8000` | 8000 |
 | Backend (Node.js)    | systemd user service (`lobby-backend.service`) | `http://localhost:3001` | 3001 |
 | Frontend (React)     | systemd user service (`lobby-frontend.service`) | `http://10.11.70.24:5173` | 5173 |
 
@@ -599,7 +599,7 @@ Then refresh the app in your browser (`http://10.11.70.24:5173`) and click "Star
 
 ### 🌐 Fix: App Breaks When VS Code SSH Session is Closed
 
-**Symptom:** Everything works while VS Code Remote SSH is open, but the moment you close VS Code, the app stops showing the stream, scene analysis disappears, the UI switches to "Cloud LLM" mode, and the phi-4-multimodal option is disabled.
+**Symptom:** Everything works while VS Code Remote SSH is open, but the moment you close VS Code, the app stops showing the stream, scene analysis disappears, the UI switches to "Cloud LLM" mode, and the edge model option is disabled.
 
 **Cause:** `VITE_API_BASE_URL` in the `.env` file is set to `http://localhost:3001`. When you access the app from a browser on a different machine (e.g., your Windows laptop), the browser tries to reach `localhost:3001` — which is **your laptop**, not the VM. It only works while VS Code is open because VS Code automatically port-forwards port 3001 from the VM to your laptop. When VS Code closes, the port forward dies and the frontend loses connection to the backend.
 
@@ -922,7 +922,7 @@ Lobby-Live-Stream-Agent-v2/
 │   ├── index.html
 │   └── package.json
 │
-├── VLLM_DEPLOYMENT.md    # vLLM + Phi-4 setup guide
+├── VLLM_DEPLOYMENT.md    # vLLM + Qwen2.5-VL setup guide
 └── README.md
 ```
 
@@ -996,7 +996,7 @@ Maintained by Microsoft Innovation Hub India.
 - Microsoft Innovation Hub India team
 - Azure OpenAI for GPT-4o Vision (cloud mode)
 - vLLM project for high-performance model serving (edge mode)
-- Microsoft Phi-4-multimodal-instruct model
+- Alibaba Cloud Qwen team for Qwen2.5-VL-7B-Instruct model
 - Open source community (HLS.js, Lucide, Tailwind, FFmpeg)
 
 ---
@@ -1005,6 +1005,6 @@ Maintained by Microsoft Innovation Hub India.
 
 **Made with ❤️ by Microsoft Innovation Hub India**
 
-*Dual-mode AI: Azure OpenAI GPT-4o (Cloud) · vLLM + Phi-4-multimodal (Edge)*
+*Dual-mode AI: Azure OpenAI GPT-4o (Cloud) · vLLM + Qwen2.5-VL-7B (Edge)*
 
 </div>

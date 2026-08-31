@@ -106,3 +106,14 @@ export const analysisService = {
     }
   }
 };
+
+export const agentService = {
+  chat: async (question, history = []) => {
+    try {
+      const response = await axios.post(`${API_BASE_URL}/agent/chat`, { question, history });
+      return response.data;
+    } catch (error) {
+      throw new Error(error.response?.data?.error || error.response?.data?.message || 'Failed to get response');
+    }
+  }
+};

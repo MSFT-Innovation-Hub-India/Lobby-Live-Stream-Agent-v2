@@ -1,0 +1,60 @@
+{
+  "id": "gov-service-center",
+  "name": "Government Service Center",
+  "description": "Monitors government service center queues (Aadhar, Digital India) for crowding and emergency situations near service panels.",
+  "edgeMetricsAvailable": true,
+  "alerts": {
+    "enabled": true,
+    "queueThreshold": 5,
+    "queueThresholdEnvVar": "GOV_QUEUE_THRESHOLD",
+    "levels": [
+      {
+        "id": "green",
+        "severity": "green",
+        "title": "Queue Crowding Alert",
+        "triggerKey": "queue_count",
+        "triggerCondition": "threshold",
+        "message": "There is undue crowding in the Aadhar services queue. Consider opening another queue to handle the crowd of people."
+      },
+      {
+        "id": "red",
+        "severity": "red",
+        "title": "Emergency Alert",
+        "triggerKey": "person_fallen",
+        "triggerCondition": "boolean",
+        "message": "A person appears to have fallen near the Aadhar services queue area. Please select an immediate response action below.",
+        "actions": [
+          "Call emergency services",
+          "Send notification to Aadhar services Assistance",
+          "Trigger the buzzer asking for attention"
+        ]
+      }
+    ]
+  },
+  "metrics": [
+    {
+      "key": "queue_count",
+      "label": "Queue Length",
+      "icon": "Users",
+      "color": "indigo"
+    },
+    {
+      "key": "token_number",
+      "label": "Current Token",
+      "icon": "Hash",
+      "color": "amber"
+    }
+  ],
+  "totalMetric": {
+    "key": "queue_count",
+    "label": "People in Queue",
+    "icon": "Users",
+    "color": "emerald"
+  },
+  "sceneSections": [
+    { "key": "location", "emoji": "🏛️", "title": "Location & Environment" },
+    { "key": "queue", "emoji": "🚶", "title": "Queue Status" },
+    { "key": "notable", "emoji": "🔍", "title": "Notable Observations" },
+    { "key": "overall", "emoji": "📊", "title": "Overall Assessment" }
+  ]
+}

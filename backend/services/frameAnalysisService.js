@@ -510,11 +510,11 @@ class FrameAnalysisService {
 
   // Build structured response from the new { title, scene, alerts } JSON format
   buildResponseFromTitleSceneJSON(parsed) {
-    const title = parsed.title || 'Bank Lobby Scene';
+    const title = parsed.title || 'Scene Analysis';
     const scene = parsed.scene || '';
     const alerts = parsed.alerts || {};
 
-    // Build alert message from alerts object
+    // Build alert message from alerts object (ai-first-bank format)
     const alertParts = [];
     if (alerts.wheelchair_or_walking_stick) alertParts.push('Person with wheelchair or walking stick detected');
     if (alerts.child_visible) alertParts.push('Child detected in the lobby');
@@ -524,7 +524,7 @@ class FrameAnalysisService {
     const sceneSection = `**🎬 Scene Analysis:**\n${scene}`;
     const sceneDescription = `${htmlCaption}\n\n${sceneSection}`;
 
-    return {
+    const result = {
       timestamp: new Date().toISOString(),
       total_persons: 0,
       persons_near_doors: 0,
@@ -536,6 +536,45 @@ class FrameAnalysisService {
       alert_message: alertMessage,
       _edgeMode: true
     };
+
+    // Pass through scenario-specific fields (e.g. queue_count, token_number, person_fallen)
+    const reservedKeys = new Set(['title', 'scene', 'alerts', 'timestamp', 'scene_description', 'alert_message', '_edgeMode']);
+    for (const [key, value] of Object.entries(parsed)) {
+      if (!reservedKeys.has(key)) {
+        result[key] = value;
+      }
+    }
+
+    // Multi-level alert handling (e.g. gov-service-center with green/red severity levels)
+    const alertLevels = this.scenarioConfig?.alerts?.levels;
+    if (alertLevels && !result.alert_message) {
+      let triggeredAlert = null;
+      for (const level of alertLevels) {
+        const val = result[level.triggerKey];
+        let triggered = false;
+        if (level.triggerCondition === 'threshold') {
+          const envVar = this.scenarioConfig.alerts.queueThresholdEnvVar;
+          const defaultThreshold = this.scenarioConfig.alerts.queueThreshold || 5;
+          const threshold = parseInt(process.env[envVar] || defaultThreshold);
+          if (typeof val === 'number' && val > threshold) triggered = true;
+        } else {
+          triggered = val === true || (typeof val === 'number' && val > 0);
+        }
+        // Red severity takes priority over green
+        if (triggered && (!triggeredAlert || level.severity === 'red')) {
+          triggeredAlert = level;
+        }
+      }
+      if (triggeredAlert) {
+        result.alert_message = triggeredAlert.message;
+        result.alert_severity = triggeredAlert.severity;
+        result.alert_title = triggeredAlert.title;
+        if (triggeredAlert.actions) result.alert_actions = triggeredAlert.actions;
+        console.log(`Multi-level alert triggered: ${triggeredAlert.severity} — ${triggeredAlert.title}`);
+      }
+    }
+
+    return result;
   }
 
   // Build structured response from a fully-parsed JSON object

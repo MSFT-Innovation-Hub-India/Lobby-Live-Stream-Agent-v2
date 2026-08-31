@@ -30,7 +30,8 @@ import {
   AlertCircle,
   Mail,
   Cloud,
-  Cpu
+  Cpu,
+  Hash
 } from "lucide-react";
 import { streamService, analysisService } from '../services/api';
 
@@ -75,7 +76,7 @@ const SectionCard = ({ title, right, children }) => (
 
 // ---------- Icon Map ----------
 const ICON_MAP = {
-  DoorOpen, UserCheck, Users, Eye, Baby, Heart, Armchair,
+  DoorOpen, UserCheck, Users, Eye, Baby, Heart, Armchair, Hash,
 };
 
 const getIcon = (iconName) => ICON_MAP[iconName] || Eye;
@@ -115,6 +116,8 @@ export default function LobbyLiveStreamDashboard() {
   // Alert state
   const [alertMessage, setAlertMessage] = useState(null);
   const [dismissedAlertFrameId, setDismissedAlertFrameId] = useState(null);
+  const [selectedAlertAction, setSelectedAlertAction] = useState(null);
+  const [alertActionChoices, setAlertActionChoices] = useState({});
 
   // Initialize HLS player
   useEffect(() => {
@@ -515,14 +518,17 @@ export default function LobbyLiveStreamDashboard() {
     const triggerKeys = scenarioConfig.alerts.triggerKeys || [];
     const triggered = triggerKeys.some(key => (analysisData[key] ?? 0) > 0);
     
-    if (triggered && analysisData.alert_message) {
+    if ((triggered || analysisData.alert_severity) && analysisData.alert_message) {
       setAlertMessage({
         frameId: currentFrame.id,
         message: analysisData.alert_message,
-        title: scenarioConfig.alerts.title || 'Alert',
+        title: analysisData.alert_title || scenarioConfig.alerts.title || 'Alert',
         emailNote: scenarioConfig.alerts.emailNote || '',
         timestamp: currentFrame.timestamp,
+        severity: analysisData.alert_severity || null,
+        actions: analysisData.alert_actions || null,
       });
+      setSelectedAlertAction(null);
     }
   }, [currentFrame?.id, analysisData, scenarioConfig, dismissedAlertFrameId]);
   
@@ -531,6 +537,14 @@ export default function LobbyLiveStreamDashboard() {
       setDismissedAlertFrameId(alertMessage.frameId);
     }
     setAlertMessage(null);
+    setSelectedAlertAction(null);
+  };
+
+  const submitAlertAction = () => {
+    if (alertMessage && selectedAlertAction) {
+      setAlertActionChoices(prev => ({ ...prev, [alertMessage.frameId]: selectedAlertAction }));
+      dismissAlert();
+    }
   };
   
   // Dynamic metric extraction based on scenario config
@@ -548,6 +562,9 @@ export default function LobbyLiveStreamDashboard() {
   ];
   
   const totalCount = analysisData?.[totalMetric.key] ?? 0;
+
+  // In edge mode, hide metrics unless the scenario provides them (edgeMetricsAvailable)
+  const metricsDisabled = modelMode === 'edge' && !(scenarioConfig?.edgeMetricsAvailable);
 
   // Extract catchy title
   const extractCatchyTitle = (analysis) => {
@@ -650,7 +667,8 @@ export default function LobbyLiveStreamDashboard() {
             ...metrics.map(m => `${m.label}: ${analysis?.[m.key] ?? 0}`)
           ],
       summary: extractCatchyTitle(frame.analysis),
-      alertMessage: analysis?.alert_message || null
+      alertMessage: analysis?.alert_message || null,
+      alertSeverity: analysis?.alert_severity || null
     };
   });
 
@@ -674,6 +692,12 @@ export default function LobbyLiveStreamDashboard() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <a
+              href="/agent"
+              className="inline-flex items-center gap-2 rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-3 py-1.5 text-xs text-indigo-300 hover:bg-indigo-500/15 transition-all"
+            >
+              <BarChart3 className="h-3.5 w-3.5" /> Analytics
+            </a>
             <Capsule tone={isStreaming ? "green" : "red"}>
               <CircleDot className="h-3 w-3" /> {isStreaming ? "Streaming" : "Stopped"}
             </Capsule>
@@ -822,9 +846,21 @@ export default function LobbyLiveStreamDashboard() {
                     </div>
                     <p className="text-sm leading-snug text-slate-200 line-clamp-2">{f.summary}</p>
                     {f.alertMessage && (
-                      <div className="mt-2 flex items-start gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5">
-                        <Bell className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
-                        <p className="text-xs text-amber-200/90 line-clamp-2">{f.alertMessage}</p>
+                      <div className={`mt-2 flex items-start gap-1.5 rounded-lg border px-2.5 py-1.5 ${
+                        f.alertSeverity === 'red' ? 'border-red-500/30 bg-red-500/10' :
+                        f.alertSeverity === 'green' ? 'border-emerald-500/30 bg-emerald-500/10' :
+                        'border-amber-500/30 bg-amber-500/10'
+                      }`}>
+                        <Bell className={`h-3.5 w-3.5 shrink-0 mt-0.5 ${
+                          f.alertSeverity === 'red' ? 'text-red-400' :
+                          f.alertSeverity === 'green' ? 'text-emerald-400' :
+                          'text-amber-400'
+                        }`} />
+                        <p className={`text-xs line-clamp-2 ${
+                          f.alertSeverity === 'red' ? 'text-red-200/90' :
+                          f.alertSeverity === 'green' ? 'text-emerald-200/90' :
+                          'text-amber-200/90'
+                        }`}>{f.alertMessage}</p>
                       </div>
                     )}
                     <div className="mt-2 flex flex-wrap gap-2">
@@ -958,10 +994,10 @@ export default function LobbyLiveStreamDashboard() {
             )}
 
             {/* Live People Count */}
-            <div className={`mt-4 space-y-3${modelMode === 'edge' ? ' opacity-40 pointer-events-none' : ''}`}>
+            <div className={`mt-4 space-y-3${metricsDisabled ? ' opacity-40 pointer-events-none' : ''}`}>
               <div className="text-xs font-semibold uppercase tracking-wide text-slate-300 mb-3 flex items-center gap-2">
                 <Users2 className="h-4 w-4" /> Live People Count
-                {modelMode === 'edge' && <span className="text-[10px] font-normal text-slate-500 ml-1">(not available in edge mode)</span>}
+                {metricsDisabled && <span className="text-[10px] font-normal text-slate-500 ml-1">(not available in edge mode)</span>}
               </div>
               
               {metrics.map((m) => {
@@ -979,7 +1015,7 @@ export default function LobbyLiveStreamDashboard() {
                         <IconComp className="h-4 w-4" />
                         <span className="text-xs">{m.label}</span>
                       </div>
-                      <span className={`text-2xl font-bold ${modelMode === 'edge' ? 'text-slate-600' : c.text}`}>{modelMode === 'edge' ? 'N/A' : (analysisData?.[m.key] ?? 0)}</span>
+                      <span className={`text-2xl font-bold ${metricsDisabled ? 'text-slate-600' : c.text}`}>{metricsDisabled ? 'N/A' : (analysisData?.[m.key] ?? 0)}</span>
                     </div>
                   </div>
                 );
@@ -991,7 +1027,7 @@ export default function LobbyLiveStreamDashboard() {
                     {(() => { const TotalIcon = getIcon(totalMetric.icon); return <TotalIcon className="h-4 w-4" />; })()}
                     <span className="text-xs font-semibold">{totalMetric.label}</span>
                   </div>
-                  <span className={`text-3xl font-bold ${modelMode === 'edge' ? 'text-slate-600' : 'text-emerald-300'}`}>{modelMode === 'edge' ? 'N/A' : totalCount}</span>
+                  <span className={`text-3xl font-bold ${metricsDisabled ? 'text-slate-600' : 'text-emerald-300'}`}>{metricsDisabled ? 'N/A' : totalCount}</span>
                 </div>
               </div>
             </div>
@@ -1085,65 +1121,127 @@ export default function LobbyLiveStreamDashboard() {
       </div>
 
       {/* Alert Popup */}
-      {alertMessage && (
-        <div 
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
-          onClick={dismissAlert}
-        >
+      {alertMessage && (() => {
+        const sev = alertMessage.severity;
+        const isRed = sev === 'red';
+        const isGreen = sev === 'green';
+        const borderClr = isRed ? 'border-red-500/50' : isGreen ? 'border-emerald-500/50' : 'border-amber-500/50';
+        const headerBg = isRed ? 'from-red-600/30 via-red-500/20' : isGreen ? 'from-emerald-600/30 via-emerald-500/20' : 'from-amber-600/30 via-amber-500/20';
+        const iconBg = isRed ? 'bg-red-500/30' : isGreen ? 'bg-emerald-500/30' : 'bg-amber-500/30';
+        const iconClr = isRed ? 'text-red-300' : isGreen ? 'text-emerald-300' : 'text-amber-300';
+        const titleClr = isRed ? 'text-red-200' : isGreen ? 'text-emerald-200' : 'text-amber-200';
+        const timeClr = isRed ? 'text-red-300/70' : isGreen ? 'text-emerald-300/70' : 'text-amber-300/70';
+        const msgIconClr = isRed ? 'text-red-400' : isGreen ? 'text-emerald-400' : 'text-amber-400';
+        const shadowClr = isRed ? 'shadow-red-500/20' : isGreen ? 'shadow-emerald-500/20' : 'shadow-amber-500/20';
+        const btnGrad = isRed
+          ? 'from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 shadow-red-500/20 hover:shadow-red-500/30'
+          : isGreen
+            ? 'from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 shadow-emerald-500/20 hover:shadow-emerald-500/30'
+            : 'from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 shadow-amber-500/20 hover:shadow-amber-500/30';
+        const AlertIcon = isRed ? AlertTriangle : Bell;
+
+        return (
           <div 
-            className="relative w-full max-w-lg rounded-2xl border-2 border-amber-500/50 bg-slate-900 shadow-2xl shadow-amber-500/20 animate-[pulse_2s_ease-in-out_1]"
-            onClick={(e) => e.stopPropagation()}
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+            onClick={dismissAlert}
           >
-            {/* Alert Header */}
-            <div className="flex items-center gap-3 border-b border-amber-500/30 bg-gradient-to-r from-amber-600/30 via-amber-500/20 to-transparent px-6 py-4 rounded-t-2xl">
-              <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-amber-500/30">
-                <Bell className="h-6 w-6 text-amber-300 animate-bounce" />
-                <div className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-red-500 animate-ping"></div>
-                <div className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-red-500"></div>
-              </div>
-              <div className="flex-1">
-                <h2 className="text-lg font-bold text-amber-200">{alertMessage.title}</h2>
-                <p className="text-xs text-amber-300/70">
-                  {new Date(alertMessage.timestamp).toLocaleString()}
-                </p>
-              </div>
-              <button
-                onClick={dismissAlert}
-                className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-slate-400 transition-colors hover:bg-white/10 hover:text-slate-200"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            {/* Alert Body */}
-            <div className="px-6 py-5 space-y-4">
-              <div className="flex items-start gap-3">
-                <AlertCircle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
-                <p className="text-sm leading-relaxed text-slate-200">
-                  {alertMessage.message}
-                </p>
-              </div>
-
-              {alertMessage.emailNote && (
-                <div className="flex items-center gap-2 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-4 py-3">
-                  <Mail className="h-4 w-4 text-indigo-400 shrink-0" />
-                  <p className="text-xs text-indigo-300">{alertMessage.emailNote}</p>
+            <div 
+              className={`relative w-full max-w-lg rounded-2xl border-2 ${borderClr} bg-slate-900 shadow-2xl ${shadowClr} animate-[pulse_2s_ease-in-out_1]`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Alert Header */}
+              <div className={`flex items-center gap-3 border-b ${borderClr.replace('/50', '/30')} bg-gradient-to-r ${headerBg} to-transparent px-6 py-4 rounded-t-2xl`}>
+                <div className={`relative flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${iconBg}`}>
+                  <AlertIcon className={`h-6 w-6 ${iconClr} animate-bounce`} />
+                  <div className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-red-500 animate-ping"></div>
+                  <div className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-red-500"></div>
                 </div>
-              )}
-            </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <h2 className={`text-lg font-bold ${titleClr}`}>{alertMessage.title}</h2>
+                    {sev && (
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                        isRed ? 'bg-red-500/20 text-red-300 border border-red-500/30' :
+                        'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                      }`}>{sev}</span>
+                    )}
+                  </div>
+                  <p className={`text-xs ${timeClr}`}>
+                    {new Date(alertMessage.timestamp).toLocaleString()}
+                  </p>
+                </div>
+                <button
+                  onClick={dismissAlert}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-slate-400 transition-colors hover:bg-white/10 hover:text-slate-200"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
 
-            {/* Alert Footer */}
-            <div className="border-t border-white/10 px-6 py-4 rounded-b-2xl">
-              <button
-                onClick={dismissAlert}
-                className="w-full rounded-xl bg-gradient-to-r from-amber-600 to-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-amber-500/20 transition-all hover:from-amber-500 hover:to-amber-400 hover:shadow-amber-500/30"
-              >
-                Acknowledge &amp; Dismiss
-              </button>
+              {/* Alert Body */}
+              <div className="px-6 py-5 space-y-4">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className={`h-5 w-5 ${msgIconClr} shrink-0 mt-0.5`} />
+                  <p className="text-sm leading-relaxed text-slate-200">
+                    {alertMessage.message}
+                  </p>
+                </div>
+
+                {/* Radio buttons for actionable alerts (red) */}
+                {isRed && alertMessage.actions && (
+                  <div className="space-y-2 mt-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-300">Select Response Action:</p>
+                    {alertMessage.actions.map((action, idx) => (
+                      <label key={idx} className={`flex items-center gap-3 rounded-xl border p-3 cursor-pointer transition-all ${
+                        selectedAlertAction === action
+                          ? 'border-red-500/50 bg-red-500/10 text-red-200'
+                          : 'border-white/10 bg-white/5 text-slate-200 hover:bg-white/10'
+                      }`}>
+                        <input
+                          type="radio"
+                          name="alert-action"
+                          value={action}
+                          checked={selectedAlertAction === action}
+                          onChange={() => setSelectedAlertAction(action)}
+                          className="h-4 w-4 accent-red-500"
+                        />
+                        <span className="text-sm">{action}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+
+                {alertMessage.emailNote && (
+                  <div className="flex items-center gap-2 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-4 py-3">
+                    <Mail className="h-4 w-4 text-indigo-400 shrink-0" />
+                    <p className="text-xs text-indigo-300">{alertMessage.emailNote}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Alert Footer */}
+              <div className="border-t border-white/10 px-6 py-4 rounded-b-2xl">
+                {isRed && alertMessage.actions ? (
+                  <button
+                    onClick={submitAlertAction}
+                    disabled={!selectedAlertAction}
+                    className={`w-full rounded-xl bg-gradient-to-r ${btnGrad} px-4 py-2.5 text-sm font-semibold text-white shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed`}
+                  >
+                    Submit
+                  </button>
+                ) : (
+                  <button
+                    onClick={dismissAlert}
+                    className={`w-full rounded-xl bg-gradient-to-r ${btnGrad} px-4 py-2.5 text-sm font-semibold text-white shadow-lg transition-all hover:shadow-lg`}
+                  >
+                    Acknowledge &amp; Dismiss
+                  </button>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Frame Detail Modal */}
       {selectedFrame && (
@@ -1204,10 +1302,10 @@ export default function LobbyLiveStreamDashboard() {
                 </div>
 
                 {/* People Count Panel */}
-                <div className={`space-y-3${modelMode === 'edge' ? ' opacity-40' : ''}`}>
+                <div className={`space-y-3${metricsDisabled ? ' opacity-40' : ''}`}>
                   <h3 className="text-sm font-semibold text-slate-200 uppercase tracking-wide flex items-center gap-2">
                     <Users2 className="h-4 w-4" /> People Count
-                    {modelMode === 'edge' && <span className="text-[10px] font-normal text-slate-500 ml-1">(N/A in edge mode)</span>}
+                    {metricsDisabled && <span className="text-[10px] font-normal text-slate-500 ml-1">(N/A in edge mode)</span>}
                   </h3>
                   
                   {(() => {
@@ -1229,8 +1327,8 @@ export default function LobbyLiveStreamDashboard() {
                                   <IconComp className="h-4 w-4" />
                                   <span className="text-sm">{m.label}</span>
                                 </div>
-                                <span className={`text-3xl font-bold ${modelMode === 'edge' ? 'text-slate-600' : c.text}`}>
-                                  {modelMode === 'edge' ? 'N/A' : (analysis?.[m.key] ?? 0)}
+                                <span className={`text-3xl font-bold ${metricsDisabled ? 'text-slate-600' : c.text}`}>
+                                  {metricsDisabled ? 'N/A' : (analysis?.[m.key] ?? 0)}
                                 </span>
                               </div>
                             </div>
@@ -1243,8 +1341,8 @@ export default function LobbyLiveStreamDashboard() {
                               {(() => { const TotalIcon = getIcon(totalMetric.icon); return <TotalIcon className="h-5 w-5" />; })()}
                               <span className="text-sm font-semibold">{totalMetric.label}</span>
                             </div>
-                            <span className={`text-4xl font-bold ${modelMode === 'edge' ? 'text-slate-600' : 'text-emerald-300'}`}>
-                              {modelMode === 'edge' ? 'N/A' : (analysis?.[totalMetric.key] ?? 0)}
+                            <span className={`text-4xl font-bold ${metricsDisabled ? 'text-slate-600' : 'text-emerald-300'}`}>
+                              {metricsDisabled ? 'N/A' : (analysis?.[totalMetric.key] ?? 0)}
                             </span>
                           </div>
                         </div>
@@ -1286,19 +1384,46 @@ export default function LobbyLiveStreamDashboard() {
               {(() => {
                 const analysis = parseAnalysis(selectedFrame);
                 if (analysis?.alert_message) {
+                  const sev = analysis.alert_severity;
+                  const isRed = sev === 'red';
+                  const isGreen = sev === 'green';
+                  const borderStyle = isRed ? 'border-red-500/40' : isGreen ? 'border-emerald-500/40' : 'border-amber-500/40';
+                  const bgStyle = isRed ? 'from-red-500/15 via-red-500/10' : isGreen ? 'from-emerald-500/15 via-emerald-500/10' : 'from-amber-500/15 via-amber-500/10';
+                  const iconBg = isRed ? 'bg-red-500/20' : isGreen ? 'bg-emerald-500/20' : 'bg-amber-500/20';
+                  const iconClr = isRed ? 'text-red-400' : isGreen ? 'text-emerald-400' : 'text-amber-400';
+                  const titleClr = isRed ? 'text-red-300' : isGreen ? 'text-emerald-300' : 'text-amber-300';
+                  const chosenAction = alertActionChoices[selectedFrame.id];
                   return (
-                    <div className="rounded-xl border-2 border-amber-500/40 bg-gradient-to-r from-amber-500/15 via-amber-500/10 to-transparent p-5">
+                    <div className={`rounded-xl border-2 ${borderStyle} bg-gradient-to-r ${bgStyle} to-transparent p-5`}>
                       <div className="flex items-start gap-3">
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-500/20">
-                          <Bell className="h-5 w-5 text-amber-400" />
+                        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${iconBg}`}>
+                          {isRed ? <AlertTriangle className={`h-5 w-5 ${iconClr}`} /> : <Bell className={`h-5 w-5 ${iconClr}`} />}
                         </div>
                         <div className="flex-1">
-                          <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-amber-300">
-                            {scenarioConfig?.alerts?.title || 'Alert'}
-                          </h3>
+                          <div className="flex items-center gap-2 mb-2">
+                            <h3 className={`text-sm font-semibold uppercase tracking-wide ${titleClr}`}>
+                              {analysis.alert_title || scenarioConfig?.alerts?.title || 'Alert'}
+                            </h3>
+                            {sev && (
+                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                                isRed ? 'bg-red-500/20 text-red-300 border border-red-500/30' :
+                                isGreen ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
+                                'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                              }`}>{sev}</span>
+                            )}
+                          </div>
                           <p className="text-sm leading-relaxed text-slate-200">
                             {analysis.alert_message}
                           </p>
+                          {chosenAction && (
+                            <div className="mt-3 flex items-center gap-2 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-3 py-2">
+                              <span className="text-xs font-semibold text-indigo-300">Action Taken:</span>
+                              <span className="text-xs text-indigo-200">{chosenAction}</span>
+                            </div>
+                          )}
+                          {!chosenAction && analysis.alert_actions && (
+                            <div className="mt-3 text-xs text-slate-400 italic">Response actions available — no action submitted yet</div>
+                          )}
                           {scenarioConfig?.alerts?.emailNote && (
                             <div className="mt-3 flex items-center gap-2 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-3 py-2">
                               <Mail className="h-3.5 w-3.5 text-indigo-400 shrink-0" />

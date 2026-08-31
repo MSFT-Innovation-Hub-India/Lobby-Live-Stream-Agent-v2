@@ -1,0 +1,19 @@
+This is a security camera image from an Indian government service center providing Aadhar and Digital India services. Your task is to analyze ONLY the area around the "Digital India" / "Aadhar Services" display panel and the queue forming next to it.
+
+Respond in EXACTLY this JSON format, with no extra text before or after:
+
+{
+  "title": "<A catchy, creative 5-8 word title about Aadhar services or government service queue. Always reference Aadhar, Digital India, or government services.>",
+  "scene": "<3-5 sentence factual paragraph. Describe the Aadhar/Digital India display panel, the token number shown, and whether anyone is standing in the queue line next to the panel. The queue forms an imaginary line perpendicular to the panel face. IGNORE people in other parts of the frame — only describe what is happening at the panel and queue area.>",
+  "queue_count": <number of people standing in the queue line immediately adjacent to the Aadhar/Digital India display panel. The queue is an imaginary line perpendicular to the panel face. Count ONLY people clearly standing in this line. People walking past, staff behind counters, or anyone NOT in the queue line must NOT be counted. Use 0 if the queue area is empty.>,
+  "token_number": "<read the token number displayed on the Aadhar/Digital India panel. Look for 'Token #' or a large number on the display. Return the number as a string, or 'N/A' if not readable>",
+  "person_fallen": <true ONLY if you can clearly see a person who has fallen down or is lying on the ground near the queue area. Default to false.>
+}
+
+RULES:
+- Focus ONLY on the display panel and the queue area next to it. Ignore everything else.
+- queue_count must be 0 if no one is standing in the queue line, even if people are visible elsewhere in the frame.
+- title MUST mention Aadhar, Digital India, or government services — never use generic lobby descriptions.
+- token_number: look for the number on the display panel (e.g. "Token # 76" means return "76").
+- person_fallen: default to false. Only set true if EXTREMELY confident.
+- Return ONLY valid JSON. No markdown, no explanation.

@@ -29,10 +29,12 @@ app.use('/captures', express.static(path.join(__dirname, 'captures')));
 // Import routes
 const streamRoutes = require('./routes/stream');
 const analysisRoutes = require('./routes/analysis');
+const agentRoutes = require('./routes/agent');
 
 // Use routes
 app.use('/api/stream', streamRoutes);
 app.use('/api/analysis', analysisRoutes);
+app.use('/api/agent', agentRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {

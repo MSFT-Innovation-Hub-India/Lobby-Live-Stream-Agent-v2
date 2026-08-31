@@ -43,18 +43,22 @@ The system supports **dual-mode AI inference**:
 1. **Streams Live Video**: Displays real-time footage from RTSP cameras (like IP security cameras) in your web browser
 2. **Captures Frames**: Automatically takes snapshots every 60 seconds
 3. **AI Analysis**: Uses Azure OpenAI GPT-4o Vision (cloud) or vLLM + Qwen2.5-VL-7B (edge) to analyze each frame
-4. **Scenario-Based Prompts**: Switchable prompt profiles for different environments (lobby monitoring, banking security)
+4. **Scenario-Based Prompts**: Switchable prompt profiles for different environments (lobby monitoring, banking security, government service centers)
 5. **Provides Insights**: Generates scene descriptions, people counts, and anomaly alerts
 6. **Displays Results**: Shows analyzed frames with detailed information in a modern, dark-theme interface
+7. **Analytics Agent**: Chat-based analytics interface to ask natural language questions about captured data
 
 ### Key Features
 
 - ✅ **Dual-Mode AI** — cloud (Azure OpenAI GPT-4o) or edge (vLLM + Qwen2.5-VL-7B)
 - ✅ **Live RTSP Streaming** with HLS conversion for browser compatibility
 - ✅ **AI-Powered Frame Analysis** with people counting and scene description
-- ✅ **Scenario Switching** — select prompt profiles from the UI (Innovation Hub, AI-First Bank)
+- ✅ **Scenario Switching** — select prompt profiles from the UI (Innovation Hub, AI-First Bank, Government Service Center)
 - ✅ **Anti-Hallucination Guardrails** — confidence thresholds, false-positive warnings
 - ✅ **Model Refusal Detection** — auto-retry when edge model returns text-mode errors
+- ✅ **Multi-Level Alerts** — green (queue crowding), red (emergency with actionable radio buttons), amber (standard)
+- ✅ **Government Service Center Scenario** — Aadhar/Digital India queue monitoring with token number tracking
+- ✅ **Analytics Agent** — chat interface at `/agent` to query captured data using the SLM
 - ✅ **Banking Scenario Alerts** — anomaly and security event badges
 - ✅ **Real-time People Counting** (near doors, at reception, other areas)
 - ✅ **Modal Frame Details** with expandable views
@@ -501,6 +505,67 @@ npm run dev
 
 ---
 
+## 🏛️ Scenario Profiles
+
+The system supports multiple switchable scenario profiles, each with its own AI prompts, metrics, and alert rules. Switch scenarios from the **Scenario** panel in the dashboard UI.
+
+| Scenario | ID | Metrics | Alerts |
+|---|---|---|---|
+| **Innovation Hub Entrance Lobby** | `hub-lobby-default` | Persons near doors, at reception, other areas | None |
+| **AI First Bank Lobby** | `ai-first-bank` | Children detected, persons needing assistance, waiting customers | Amber — Branch Manager alert for children or mobility aids |
+| **Government Service Center** | `gov-service-center` | Queue length, current token number | Green — queue crowding (threshold configurable via `GOV_QUEUE_THRESHOLD` in `.env`); Red — person fallen (with actionable response options) |
+
+Each profile lives in `backend/system-prompts/<id>/` with three files:
+- `scenario-config.json` — metrics, alerts, scene sections
+- `analysis-prompt.txt` — detailed prompt for cloud mode (GPT-4o)
+- `analysis-prompt-edge.txt` — compact prompt for edge mode (Qwen SLM)
+
+### Government Service Center — Alert Types
+
+**Green Alert** (queue crowding): Triggers when `queue_count` exceeds `GOV_QUEUE_THRESHOLD` (default: 5). Displays a dismissible notification.
+
+**Red Alert** (emergency): Triggers when a person is detected fallen near the queue. Displays an alert with three actionable radio button options:
+1. Call emergency services
+2. Send notification to Aadhar services Assistance
+3. Trigger the buzzer asking for attention
+
+Alert messages and actions are easily editable in `backend/system-prompts/gov-service-center/scenario-config.json`.
+
+---
+
+## 🤖 Analytics Agent
+
+A chat-based interface for querying captured monitoring data using natural language.
+
+### How to Launch
+
+Open in your browser:
+
+```
+http://10.11.70.24:5173/agent
+```
+
+Or click the **Analytics** button in the main dashboard header.
+
+### What You Can Ask
+
+- "What is the current number of people in the queue?"
+- "What was the average queue length in the last 5 minutes?"
+- "What is the latest token number displayed?"
+- "Were any green or red alerts raised in the last 5 minutes?"
+- "What was the maximum people count in the queue in the last 5 minutes?"
+
+### How It Works
+
+1. The backend pre-computes analytics (averages, min/max, alert counts) from the in-memory frame data across multiple time windows (last 5 min, last 10 min, all time)
+2. The pre-computed summary is sent as context to the Qwen SLM along with your question
+3. The SLM generates a natural language answer referencing the summary
+4. Conversation history is maintained for follow-up questions
+
+The analytics endpoint is `POST /api/agent/chat` — see [API Reference](#-api-reference).
+
+---
+
 ## 🖥️ VM Deployment (Current Setup)
 
 The application is deployed on an Azure Stack Edge GPU VM (`10.11.70.24`) with an NVIDIA Tesla T4 GPU. All services run as **systemd user services** with linger enabled, so they auto-start on boot and survive SSH disconnects. See [VLLM_DEPLOYMENT.md](VLLM_DEPLOYMENT.md) for the full deployment guide.
@@ -511,6 +576,12 @@ From any machine on the same network, open this URL in your browser:
 
 ```
 http://10.11.70.24:5173
+```
+
+**Analytics Agent** (chat-based data queries):
+
+```
+http://10.11.70.24:5173/agent
 ```
 
 ### Current Running Services
@@ -898,6 +969,15 @@ Every 60 seconds:
 
 - `GET /api/analysis/frames` - Get all frames
 - `GET /api/analysis/frames/:id` - Get specific frame
+- `GET /api/analysis/scenarios` - List available scenarios
+- `GET /api/analysis/scenarios/active` - Get active scenario config
+- `POST /api/analysis/scenarios/switch` - Switch scenario (`{"scenarioId": "gov-service-center"}`)
+- `GET /api/analysis/model-mode` - Get current model mode
+- `POST /api/analysis/model-mode` - Set model mode (`{"mode": "edge"}`)
+
+### Analytics Agent
+
+- `POST /api/agent/chat` - Ask a question about captured data (`{"question": "...", "history": []}`)
 
 ---
 
@@ -907,17 +987,23 @@ Every 60 seconds:
 Lobby-Live-Stream-Agent-v2/
 ├── backend/
 │   ├── routes/           # API endpoints
+│   │   ├── stream.js     # RTSP stream control
+│   │   ├── analysis.js   # Frame analysis & scenarios
+│   │   └── agent.js      # Analytics chat agent
 │   ├── services/         # Business logic
 │   ├── system-prompts/   # Scenario prompt files
-│   │   ├── hub-lobby-default/  # Innovation Hub (markdown)
-│   │   └── ai-first-bank/     # Banking lobby (JSON)
+│   │   ├── hub-lobby-default/    # Innovation Hub lobby
+│   │   ├── ai-first-bank/        # Banking lobby (alerts)
+│   │   └── gov-service-center/   # Aadhar/Digital India queue monitoring
 │   ├── captures/         # Frame images
 │   ├── stream/           # HLS segments
 │   └── server.js         # Entry point
 │
 ├── frontend/
 │   ├── src/
-│   │   ├── components/   # React components
+│   │   ├── components/
+│   │   │   ├── LobbyDashboard.jsx  # Main monitoring dashboard
+│   │   │   └── AgentChat.jsx       # Analytics chat interface
 │   │   └── services/     # API client
 │   ├── index.html
 │   └── package.json

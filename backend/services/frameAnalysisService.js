@@ -18,9 +18,15 @@ class FrameAnalysisService {
     this.maxFailedCaptures = 5;
     this.captureIntervalMs = parseInt(process.env.FRAME_CAPTURE_INTERVAL) || 60000; // Default 60 seconds
 
-    // Ensure capture directory exists
+    // Ensure capture directory exists and clean orphaned frames from previous runs
     if (!fs.existsSync(this.captureDir)) {
       fs.mkdirSync(this.captureDir, { recursive: true });
+    } else {
+      const orphans = fs.readdirSync(this.captureDir).filter(f => f.startsWith('frame_') && f.endsWith('.jpg'));
+      if (orphans.length > 0) {
+        orphans.forEach(f => { try { fs.unlinkSync(path.join(this.captureDir, f)); } catch (_) {} });
+        console.log(`Cleaned up ${orphans.length} orphaned frame(s) from previous run`);
+      }
     }
 
     // Load system prompt and scenario config
@@ -246,10 +252,12 @@ class FrameAnalysisService {
           // showing stale "Scene Analysis in Progress" entries.
           if (typeof analysis === 'string' && analysis.startsWith('Error')) {
             console.warn('Skipping frame storage — analysis returned error:', analysis.substring(0, 120));
+            try { fs.unlinkSync(filepath); } catch (_) {}
             return;
           }
           if (typeof analysis === 'string' && analysis.includes('unavailable')) {
             console.warn('Skipping frame storage — SLM unavailable:', analysis.substring(0, 120));
+            try { fs.unlinkSync(filepath); } catch (_) {}
             return;
           }
 
@@ -278,6 +286,7 @@ class FrameAnalysisService {
           console.log(`Frame analyzed successfully`);
         } catch (error) {
           console.error('Error analyzing frame:', error.message);
+          try { fs.unlinkSync(filepath); } catch (_) {}
         }
       } else {
         this.failedCaptureCount++;

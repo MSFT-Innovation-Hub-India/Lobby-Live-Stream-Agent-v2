@@ -71,7 +71,7 @@ ALL TIME (${allStats.count} observations):
 - Green alerts total: ${allStats.greenAlerts}
 - Red alerts total: ${allStats.redAlerts}`;
 
-    const systemPrompt = `You are a helpful assistant for a government service center (Aadhar / Digital India). Answer questions about queue activity, token numbers, and alerts using the summary below.
+    const systemPrompt = `You are a helpful assistant for a government service center (Digital Services). Answer questions about queue activity, token numbers, and alerts using the summary below.
 
 ${summary}
 

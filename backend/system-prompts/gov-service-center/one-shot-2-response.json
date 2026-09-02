@@ -1,6 +1,6 @@
 {
-  "title": "Emergency at Aadhar Services Queue Area",
-  "scene": "The display panel on the left shows 'Digital India Aadhar Services, Token # 83'. A person is on the ground near the panel, on hands and knees in a crawling, collapsed posture — they appear to have fallen and are not standing upright. Further back near the reception desk, one other person is standing normally, unrelated to the fallen individual. This is an emergency situation requiring immediate attention.",
+  "title": "Emergency at Digital Services Queue Area",
+  "scene": "The display panel on the left shows the Digital Services panel, Token # 83. A person is on the ground near the panel, on hands and knees in a crawling, collapsed posture — they appear to have fallen and are not standing upright. Further back near the reception desk, one other person is standing normally, unrelated to the fallen individual. This is an emergency situation requiring immediate attention.",
   "people_near_panel": 1,
   "token_number": "83"
 }

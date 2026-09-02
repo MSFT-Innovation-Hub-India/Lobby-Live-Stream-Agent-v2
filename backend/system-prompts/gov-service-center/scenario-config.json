@@ -1,7 +1,7 @@
 {
   "id": "gov-service-center",
   "name": "Government Service Center",
-  "description": "Monitors government service center queues (Aadhar, Digital India) for crowding and emergency situations near service panels.",
+  "description": "Monitors government service center queues (Digital Services) for crowding and emergency situations near service panels.",
   "edgeMetricsAvailable": true,
   "alerts": {
     "enabled": true,
@@ -14,7 +14,7 @@
         "title": "Queue Crowding Alert",
         "triggerKey": "queue_count",
         "triggerCondition": "threshold",
-        "message": "There is undue crowding in the Aadhar services queue. Consider opening another queue to handle the crowd of people."
+        "message": "There is undue crowding in the Digital Services queue. Consider opening another queue to handle the crowd of people."
       },
       {
         "id": "red",
@@ -22,10 +22,10 @@
         "title": "Emergency Alert",
         "triggerKey": "person_fallen",
         "triggerCondition": "boolean",
-        "message": "A person appears to have fallen near the Aadhar services queue area. Please select an immediate response action below.",
+        "message": "A person appears to have fallen near the Digital Services queue area. Please select an immediate response action below.",
         "actions": [
           "Call emergency services",
-          "Send notification to Aadhar services Assistance",
+          "Send notification to Digital Services Assistance",
           "Trigger the buzzer asking for attention"
         ]
       }

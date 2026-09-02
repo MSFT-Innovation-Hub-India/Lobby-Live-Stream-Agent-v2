@@ -57,7 +57,7 @@ The system supports **dual-mode AI inference**:
 - ✅ **Anti-Hallucination Guardrails** — confidence thresholds, false-positive warnings
 - ✅ **Model Refusal Detection** — auto-retry when edge model returns text-mode errors
 - ✅ **Multi-Level Alerts** — green (queue crowding), red (emergency with actionable radio buttons), amber (standard)
-- ✅ **Government Service Center Scenario** — Aadhar/Digital India queue monitoring with token number tracking
+- ✅ **Government Service Center Scenario** — Digital Services queue monitoring with token number tracking
 - ✅ **Analytics Agent** — chat interface at `/agent` to query captured data using the SLM
 - ✅ **Banking Scenario Alerts** — anomaly and security event badges
 - ✅ **Real-time People Counting** (near doors, at reception, other areas)
@@ -526,7 +526,7 @@ Each profile lives in `backend/system-prompts/<id>/` with three files:
 
 **Red Alert** (emergency): Triggers when a person is detected fallen near the queue. Displays an alert with three actionable radio button options:
 1. Call emergency services
-2. Send notification to Aadhar services Assistance
+2. Send notification to Digital Services Assistance
 3. Trigger the buzzer asking for attention
 
 Alert messages and actions are easily editable in `backend/system-prompts/gov-service-center/scenario-config.json`.
@@ -994,7 +994,7 @@ Lobby-Live-Stream-Agent-v2/
 │   ├── system-prompts/   # Scenario prompt files
 │   │   ├── hub-lobby-default/    # Innovation Hub lobby
 │   │   ├── ai-first-bank/        # Banking lobby (alerts)
-│   │   └── gov-service-center/   # Aadhar/Digital India queue monitoring
+│   │   └── gov-service-center/   # Digital Services queue monitoring
 │   ├── captures/         # Frame images
 │   ├── stream/           # HLS segments
 │   └── server.js         # Entry point

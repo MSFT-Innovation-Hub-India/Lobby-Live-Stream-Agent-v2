@@ -1,6 +1,7 @@
 {
   "title": "Digital India Aadhar Services Queue",
   "scene": "The display panel on the left shows 'Digital India Aadhar Services, Token # 96'. A queue of 5 people extends backward from the panel in a line, all standing upright and facing forward or toward the panel — the person nearest the panel has one hand on their hip, another holds a folder, and the rest are standing normally waiting their turn. Further to the right near the reception desk, a person wearing red is walking across the yellow floor markings — this person is not part of the queue and should not be counted. No one is on the ground or in distress.",
+  "reasoning": "Step 1: I see 6 people total in the frame. Step 2: 5 of them are standing still, facing the panel, forming a stationary line that starts at the panel and extends backward. Step 3: the 6th person, wearing red, is walking across the yellow floor markings near the reception desk — they are in motion, heading toward the reception/exit area, not standing still in the line, so they must be excluded even though they appear in the same general area of the frame. Step 4: the final count of people standing still in the queue line is 5.",
   "people_near_panel": 5,
   "token_number": "96"
 }

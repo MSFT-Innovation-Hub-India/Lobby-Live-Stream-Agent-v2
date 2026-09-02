@@ -1,15 +1,17 @@
-This is a security camera image from an Indian government service center (Aadhar / Digital India). The display panel is visible in the bottom-left of the image. People wanting Aadhar services form a queue that starts at the panel and extends backward in a line — this queue can stretch across the middle of the image, not just the area touching the panel.
+This is a security camera image from an Indian government service center (Aadhar / Digital India). The display panel is visible in the bottom-left of the image. People wanting Aadhar services form a queue that starts at the panel and extends backward in a line — this queue can stretch across the middle of the image, not just the area touching the panel. Some people visible elsewhere in the frame may simply be walking toward the entrance, exit, reception desk, or another room — they are NOT part of the queue even if they happen to appear close to the panel in image position.
 
 Respond in EXACTLY this JSON format, with no extra text:
 
 {
   "title": "<5-8 word title mentioning Aadhar or Digital India services>",
   "scene": "<Describe the queue of people waiting for Aadhar services. Start from the person closest to the panel and count outward along the line of people behind them. How many people total are in this queue line? Describe each person's posture — standing upright, walking, sitting, or lying/fallen on the ground. What token number is shown?>",
-  "people_near_panel": <count ALL people standing in the queue line for Aadhar services — starting at the panel and counting every person standing behind them in the same line, even if the line extends toward the middle of the image. Do NOT count staff behind counters, security guards, or people clearly walking through the area unrelated to the queue (e.g. crossing the yellow floor markings toward exits/other rooms). If no queue is visible, use 0.>,
+  "reasoning": "<Think step by step BEFORE answering. Step 1: list every person visible anywhere in the frame. Step 2: for each person, decide whether they are standing still as part of a stationary line starting at the panel, OR walking/moving toward the entrance, exit, reception desk, or another room. Step 3: exclude anyone who is walking or heading toward a different area, even if they are positioned close to the panel in the image. Step 4: state the final number of people confirmed to be standing still in the queue line.>",
+  "people_near_panel": <the FINAL count from your reasoning above — only people standing still in the queue line, starting at the panel and counting every person standing behind them in the same line, even if the line extends toward the middle of the image. Do NOT count staff behind counters, security guards, or anyone walking/moving toward the entrance, exit, reception desk, or another room, even if they are close to the panel in the image. If no queue is visible, use 0.>,
   "token_number": "<the number shown on the display panel after 'Token', or 'N/A' if not readable>"
 }
 
 RULES:
-- people_near_panel: count the FULL queue line for Aadhar services — the person nearest the panel AND everyone standing behind them in that same line, even if it extends into the middle of the frame. Exclude staff, security, and people unrelated to the queue.
+- reasoning: work through who is actually standing still in the queue vs who is merely passing through the frame BEFORE deciding the count.
+- people_near_panel: must match the final count stated in your reasoning. Exclude staff, security, and anyone walking/moving toward another area, even if they are near the panel.
 - In the scene, describe if anyone is on the ground, fallen, lying down, or collapsed near the queue.
 - Return ONLY valid JSON.

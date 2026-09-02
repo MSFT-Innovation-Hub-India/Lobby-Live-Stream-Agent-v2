@@ -31,7 +31,10 @@ class FrameAnalysisService {
 
     // Load system prompt and scenario config
     this.promptsDir = path.join(__dirname, '..', 'system-prompts');
-    this.promptProfile = process.env.PROMPT_PROFILE || 'hub-lobby-default';
+    // Persisted active scenario (set via switchScenario) survives a backend
+    // restart; falls back to PROMPT_PROFILE from .env if none was persisted yet.
+    this.activeScenarioFile = path.join(__dirname, '..', '.active-scenario.json');
+    this.promptProfile = this.loadPersistedScenario() || process.env.PROMPT_PROFILE || 'hub-lobby-default';
     this.analysisPrompt = this.loadPrompt(this.promptProfile);
     this.scenarioConfig = this.loadScenarioConfig(this.promptProfile);
     this.oneShotExamples = this.loadOneShotExample(this.promptProfile);
@@ -173,6 +176,21 @@ class FrameAnalysisService {
     return this.scenarioConfig;
   }
 
+  // Read the last-selected scenario id, if any was persisted by switchScenario()
+  loadPersistedScenario() {
+    try {
+      if (fs.existsSync(this.activeScenarioFile)) {
+        const { scenarioId } = JSON.parse(fs.readFileSync(this.activeScenarioFile, 'utf8'));
+        if (scenarioId && fs.existsSync(path.join(this.promptsDir, scenarioId, 'scenario-config.json'))) {
+          return scenarioId;
+        }
+      }
+    } catch (error) {
+      console.error('Error reading persisted scenario:', error.message);
+    }
+    return null;
+  }
+
   // Switch active scenario
   switchScenario(scenarioId) {
     const configPath = path.join(this.promptsDir, scenarioId, 'scenario-config.json');
@@ -189,6 +207,11 @@ class FrameAnalysisService {
       this.edgePrompt = this.loadPrompt(scenarioId, 'edge');
     }
     this.analyzedFrames = []; // Clear frames from previous scenario
+    try {
+      fs.writeFileSync(this.activeScenarioFile, JSON.stringify({ scenarioId }));
+    } catch (error) {
+      console.error('Error persisting active scenario:', error.message);
+    }
     console.log(`Switched to scenario: ${this.scenarioConfig?.name || scenarioId}`);
     return { success: true, message: `Switched to ${this.scenarioConfig?.name || scenarioId}`, config: this.scenarioConfig };
   }
@@ -427,9 +450,14 @@ class FrameAnalysisService {
 
   // Build the chat messages array for the SLM call, prepending a one-shot
   // example (if configured for the active scenario) to ground it on a fixed camera scene.
+  // NOTE: only the FIRST one-shot example is used here — stacking multiple
+  // one-shot images in a single call overflowed the model's 4096-token limit
+  // (decoder prompt length 4149 > 4096). Additional examples remain loaded in
+  // this.oneShotExamples for future use in a separate, dedicated call.
   buildSLMMessages(prompt, base64Image) {
     const messages = [];
-    for (const example of this.oneShotExamples || []) {
+    const example = (this.oneShotExamples || [])[0];
+    if (example) {
       messages.push({
         role: 'user',
         content: [
@@ -478,7 +506,7 @@ class FrameAnalysisService {
           body: JSON.stringify({
             model: this.vllmModel,
             messages: this.buildSLMMessages(prompt, base64Image),
-            max_tokens: 300,
+            max_tokens: 450, // higher budget to allow the chain-of-thought "reasoning" field before the final count
             temperature: 0.4
           })
         });
@@ -500,7 +528,7 @@ class FrameAnalysisService {
           body: JSON.stringify({
             model: this.vllmModel,
             messages: this.buildSLMMessages(prompt, base64Image),
-            max_tokens: 300,
+            max_tokens: 450,
             temperature: 0.4
           })
         });

@@ -31,6 +31,7 @@ Thumbs.db
 # Backend specific
 backend/stream/
 backend/captures/
+backend/.active-scenario.json
 
 # Frontend specific
 frontend/dist/

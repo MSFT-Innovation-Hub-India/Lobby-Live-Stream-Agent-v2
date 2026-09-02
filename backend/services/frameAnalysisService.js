@@ -34,7 +34,7 @@ class FrameAnalysisService {
     this.promptProfile = process.env.PROMPT_PROFILE || 'hub-lobby-default';
     this.analysisPrompt = this.loadPrompt(this.promptProfile);
     this.scenarioConfig = this.loadScenarioConfig(this.promptProfile);
-    this.oneShotExample = this.loadOneShotExample(this.promptProfile);
+    this.oneShotExamples = this.loadOneShotExample(this.promptProfile);
 
     // Model mode: 'cloud' (Azure OpenAI) or 'edge' (local SLM via Ollama)
     this.modelMode = process.env.MODEL_MODE || 'cloud';
@@ -107,22 +107,41 @@ class FrameAnalysisService {
     return null;
   }
 
-  // Load an optional one-shot example (image + ideal JSON response) for a scenario.
-  // Used to ground the edge SLM on a fixed-camera scene layout. Returns null if not present.
+  // Load one or more few-shot examples (image + ideal JSON response) for a scenario.
+  // Used to ground the edge SLM on a fixed-camera scene layout and edge cases
+  // (e.g. queue counting, a fallen person). Looks for:
+  //   one-shot-image.jpg / one-shot-response.json           (example 1, legacy name)
+  //   one-shot-2-image.jpg / one-shot-2-response.json        (example 2)
+  //   one-shot-3-image.jpg / one-shot-3-response.json        (example 3), etc.
+  // Returns an array (empty if none found) so callers can loop and prepend
+  // each pair as a prior turn before the real frame.
   loadOneShotExample(profile) {
-    const imagePath = path.join(this.promptsDir, profile, 'one-shot-image.jpg');
-    const responsePath = path.join(this.promptsDir, profile, 'one-shot-response.json');
-    try {
-      if (fs.existsSync(imagePath) && fs.existsSync(responsePath)) {
-        const imageBase64 = fs.readFileSync(imagePath).toString('base64');
-        const responseJson = fs.readFileSync(responsePath, 'utf8');
-        console.log(`Loaded one-shot example for scenario: ${profile}`);
-        return { imageBase64, responseText: responseJson.trim() };
-      }
-    } catch (error) {
-      console.error(`Error loading one-shot example: ${error.message}`);
+    const examples = [];
+    const pairs = [
+      { image: 'one-shot-image.jpg', response: 'one-shot-response.json' }
+    ];
+    for (let n = 2; n <= 10; n++) {
+      pairs.push({ image: `one-shot-${n}-image.jpg`, response: `one-shot-${n}-response.json` });
     }
-    return null;
+
+    for (const pair of pairs) {
+      const imagePath = path.join(this.promptsDir, profile, pair.image);
+      const responsePath = path.join(this.promptsDir, profile, pair.response);
+      try {
+        if (fs.existsSync(imagePath) && fs.existsSync(responsePath)) {
+          const imageBase64 = fs.readFileSync(imagePath).toString('base64');
+          const responseJson = fs.readFileSync(responsePath, 'utf8');
+          examples.push({ imageBase64, responseText: responseJson.trim() });
+        }
+      } catch (error) {
+        console.error(`Error loading one-shot example (${pair.image}): ${error.message}`);
+      }
+    }
+
+    if (examples.length > 0) {
+      console.log(`Loaded ${examples.length} one-shot example(s) for scenario: ${profile}`);
+    }
+    return examples;
   }
 
   // List all available scenarios
@@ -164,7 +183,7 @@ class FrameAnalysisService {
     this.promptProfile = scenarioId;
     this.analysisPrompt = this.loadPrompt(scenarioId);
     this.scenarioConfig = this.loadScenarioConfig(scenarioId);
-    this.oneShotExample = this.loadOneShotExample(scenarioId);
+    this.oneShotExamples = this.loadOneShotExample(scenarioId);
     // Also reload edge prompt if we're in edge mode
     if (this.modelMode === 'edge') {
       this.edgePrompt = this.loadPrompt(scenarioId, 'edge');
@@ -410,15 +429,15 @@ class FrameAnalysisService {
   // example (if configured for the active scenario) to ground it on a fixed camera scene.
   buildSLMMessages(prompt, base64Image) {
     const messages = [];
-    if (this.oneShotExample) {
+    for (const example of this.oneShotExamples || []) {
       messages.push({
         role: 'user',
         content: [
-          { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${this.oneShotExample.imageBase64}` } },
+          { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${example.imageBase64}` } },
           { type: 'text', text: prompt }
         ]
       });
-      messages.push({ role: 'assistant', content: this.oneShotExample.responseText });
+      messages.push({ role: 'assistant', content: example.responseText });
     }
     messages.push({
       role: 'user',

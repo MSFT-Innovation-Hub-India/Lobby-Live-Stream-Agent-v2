@@ -34,6 +34,7 @@ class FrameAnalysisService {
     this.promptProfile = process.env.PROMPT_PROFILE || 'hub-lobby-default';
     this.analysisPrompt = this.loadPrompt(this.promptProfile);
     this.scenarioConfig = this.loadScenarioConfig(this.promptProfile);
+    this.oneShotExample = this.loadOneShotExample(this.promptProfile);
 
     // Model mode: 'cloud' (Azure OpenAI) or 'edge' (local SLM via Ollama)
     this.modelMode = process.env.MODEL_MODE || 'cloud';
@@ -106,6 +107,24 @@ class FrameAnalysisService {
     return null;
   }
 
+  // Load an optional one-shot example (image + ideal JSON response) for a scenario.
+  // Used to ground the edge SLM on a fixed-camera scene layout. Returns null if not present.
+  loadOneShotExample(profile) {
+    const imagePath = path.join(this.promptsDir, profile, 'one-shot-image.jpg');
+    const responsePath = path.join(this.promptsDir, profile, 'one-shot-response.json');
+    try {
+      if (fs.existsSync(imagePath) && fs.existsSync(responsePath)) {
+        const imageBase64 = fs.readFileSync(imagePath).toString('base64');
+        const responseJson = fs.readFileSync(responsePath, 'utf8');
+        console.log(`Loaded one-shot example for scenario: ${profile}`);
+        return { imageBase64, responseText: responseJson.trim() };
+      }
+    } catch (error) {
+      console.error(`Error loading one-shot example: ${error.message}`);
+    }
+    return null;
+  }
+
   // List all available scenarios
   getAvailableScenarios() {
     const scenarios = [];
@@ -145,6 +164,7 @@ class FrameAnalysisService {
     this.promptProfile = scenarioId;
     this.analysisPrompt = this.loadPrompt(scenarioId);
     this.scenarioConfig = this.loadScenarioConfig(scenarioId);
+    this.oneShotExample = this.loadOneShotExample(scenarioId);
     // Also reload edge prompt if we're in edge mode
     if (this.modelMode === 'edge') {
       this.edgePrompt = this.loadPrompt(scenarioId, 'edge');
@@ -360,6 +380,56 @@ class FrameAnalysisService {
     }
   }
 
+  // Detect "person fallen" mentions in free text while ignoring negated
+  // statements like "no one is on the ground" or "not lying down".
+  detectFallenFromText(text) {
+    if (!text) return false;
+    const fallenKeywords = ['fallen', 'falls', 'lying down', 'lying on', 'on the ground', 'on the floor',
+      'collapsed', 'crawling', 'prone', 'slumped', 'crouching on the floor', 'horizontal'];
+    const negationWords = ['no', 'not', 'nor', 'none', "n't", 'without', 'nobody', 'never'];
+
+    const sentences = text.split(/(?<=[.!?])\s+/);
+    for (const sentence of sentences) {
+      const lower = sentence.toLowerCase();
+      for (const kw of fallenKeywords) {
+        const idx = lower.indexOf(kw);
+        if (idx === -1) continue;
+        // Look at the entire sentence prefix for a negation word — the SLM often
+        // lists several fallen-related terms in one negated clause (e.g. "no one
+        // is on the ground, fallen, lying down, or collapsed"), so a short
+        // lookback window would miss the negation for later terms in the list.
+        const before = lower.slice(0, idx);
+        const negated = negationWords.some(neg => before.includes(neg));
+        if (!negated) return true;
+      }
+    }
+    return false;
+  }
+
+  // Build the chat messages array for the SLM call, prepending a one-shot
+  // example (if configured for the active scenario) to ground it on a fixed camera scene.
+  buildSLMMessages(prompt, base64Image) {
+    const messages = [];
+    if (this.oneShotExample) {
+      messages.push({
+        role: 'user',
+        content: [
+          { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${this.oneShotExample.imageBase64}` } },
+          { type: 'text', text: prompt }
+        ]
+      });
+      messages.push({ role: 'assistant', content: this.oneShotExample.responseText });
+    }
+    messages.push({
+      role: 'user',
+      content: [
+        { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64Image}` } },
+        { type: 'text', text: prompt }
+      ]
+    });
+    return messages;
+  }
+
   // Analyze frame using local SLM via vLLM (OpenAI-compatible API)
   async analyzeFrameWithSLM(imagePath) {
     try {
@@ -388,15 +458,7 @@ class FrameAnalysisService {
           signal: controller.signal,
           body: JSON.stringify({
             model: this.vllmModel,
-            messages: [
-              {
-                role: 'user',
-                content: [
-                  { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64Image}` } },
-                  { type: 'text', text: prompt }
-                ]
-              }
-            ],
+            messages: this.buildSLMMessages(prompt, base64Image),
             max_tokens: 300,
             temperature: 0.4
           })
@@ -418,15 +480,7 @@ class FrameAnalysisService {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             model: this.vllmModel,
-            messages: [
-              {
-                role: 'user',
-                content: [
-                  { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64Image}` } },
-                  { type: 'text', text: prompt }
-                ]
-              }
-            ],
+            messages: this.buildSLMMessages(prompt, base64Image),
             max_tokens: 300,
             temperature: 0.4
           })
@@ -542,6 +596,21 @@ class FrameAnalysisService {
     for (const [key, value] of Object.entries(parsed)) {
       if (!reservedKeys.has(key)) {
         result[key] = value;
+      }
+    }
+
+    // Map people_near_panel → queue_count if the SLM used the simplified prompt
+    if (result.people_near_panel !== undefined && result.queue_count === undefined) {
+      result.queue_count = result.people_near_panel;
+    }
+
+    // Keyword-based fallen person detection from scene description.
+    // Checks each sentence for a fallen keyword NOT preceded by a negation
+    // word (e.g. "no one is on the ground" must NOT trigger a false alert).
+    if (result.person_fallen === undefined || result.person_fallen === false) {
+      result.person_fallen = this.detectFallenFromText(scene);
+      if (result.person_fallen) {
+        console.log('Keyword-based fallen detection triggered from scene text');
       }
     }
 

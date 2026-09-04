@@ -17,6 +17,7 @@ class FrameAnalysisService {
     this.failedCaptureCount = 0;
     this.maxFailedCaptures = 5;
     this.captureIntervalMs = parseInt(process.env.FRAME_CAPTURE_INTERVAL) || 60000; // Default 60 seconds
+    this.nextCaptureAt = null; // epoch ms — shared clock so all browser clients show the same countdown
 
     // Ensure capture directory exists and clean orphaned frames from previous runs
     if (!fs.existsSync(this.captureDir)) {
@@ -234,10 +235,12 @@ class FrameAnalysisService {
     this.failedCaptureCount = 0;
 
     // Capture immediately, then every minute
+    this.nextCaptureAt = Date.now() + this.captureIntervalMs;
     this.captureAndAnalyzeFrame();
     
     // Set interval based on environment variable (default 60000 ms = 1 minute)
     this.captureInterval = setInterval(() => {
+      this.nextCaptureAt = Date.now() + this.captureIntervalMs;
       this.captureAndAnalyzeFrame();
     }, this.captureIntervalMs);
 
@@ -252,6 +255,7 @@ class FrameAnalysisService {
       this.captureInterval = null;
       this.isCapturing = false;
       this.failedCaptureCount = 0;
+      this.nextCaptureAt = null;
       console.log('Frame capture stopped');
       return { success: true, message: 'Frame capture stopped' };
     }
@@ -1069,7 +1073,9 @@ class FrameAnalysisService {
       activeScenario: this.promptProfile,
       scenarioConfig: this.scenarioConfig,
       slmHealthy: this._lastSLMHealthy,
-      slmConsecutiveTimeouts: this._lastSLMTimeouts ?? 0
+      slmConsecutiveTimeouts: this._lastSLMTimeouts ?? 0,
+      nextCaptureAt: this.nextCaptureAt,
+      captureIntervalMs: this.captureIntervalMs
     };
   }
 

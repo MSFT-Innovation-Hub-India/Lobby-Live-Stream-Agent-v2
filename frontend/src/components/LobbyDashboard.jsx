@@ -88,6 +88,10 @@ export default function LobbyLiveStreamDashboard() {
   const [muted, setMuted] = useState(true);
   const [paused, setPaused] = useState(false);
   const [seconds, setSeconds] = useState(60);
+  // Server-authoritative timestamp (epoch ms) of the next scheduled capture —
+  // all browser clients derive their countdown from this shared value so they stay in sync.
+  const [nextCaptureAt, setNextCaptureAt] = useState(null);
+  const lastFetchedForCycle = useRef(null);
   const [expanded, setExpanded] = useState(true);
   const [loading, setLoading] = useState(false);
   const [rtspUrl, setRtspUrl] = useState(import.meta.env.VITE_DEFAULT_RTSP_URL || '');
@@ -296,25 +300,28 @@ export default function LobbyLiveStreamDashboard() {
     }
   };
 
-  // Countdown timer for frame capture
+  // Countdown timer for frame capture — derived from the backend's shared
+  // nextCaptureAt timestamp so every browser client displays the same value.
   useEffect(() => {
-    if (!isStreaming) {
+    if (!isStreaming || !nextCaptureAt) {
       setSeconds(60);
       return;
     }
 
-    const interval = setInterval(() => {
-      setSeconds((prev) => {
-        if (prev <= 1) {
-          fetchAnalyzedFrames(); // Refresh frames when countdown resets
-          return 60;
-        }
-        return prev - 1;
-      });
-    }, 1000);
+    const tick = () => {
+      const remaining = Math.max(0, Math.ceil((nextCaptureAt - Date.now()) / 1000));
+      setSeconds(remaining);
+      // Refresh frames once per cycle when the countdown reaches zero
+      if (remaining === 0 && lastFetchedForCycle.current !== nextCaptureAt) {
+        lastFetchedForCycle.current = nextCaptureAt;
+        fetchAnalyzedFrames();
+      }
+    };
 
+    tick();
+    const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
-  }, [isStreaming]);
+  }, [isStreaming, nextCaptureAt]);
 
   // Poll for new frames every 10 seconds
   useEffect(() => {
@@ -416,6 +423,12 @@ export default function LobbyLiveStreamDashboard() {
         } else if (!backendIsStreaming) {
           setStreamUrl(prevUrl => prevUrl === null ? prevUrl : null);
           setSeconds(60);
+          setNextCaptureAt(null);
+        }
+        
+        // Sync countdown to the backend's shared capture schedule
+        if (data.capture?.nextCaptureAt) {
+          setNextCaptureAt(data.capture.nextCaptureAt);
         }
         
         // Update model name

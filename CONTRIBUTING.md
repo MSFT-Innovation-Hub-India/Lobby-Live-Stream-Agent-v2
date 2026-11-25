@@ -108,7 +108,7 @@ backend/
 - Backend starts successfully
 - Frontend builds without errors
 - Stream starts and displays video
-- Frame capture works (wait 60 seconds)
+- Frame capture works (wait one `FRAME_CAPTURE_INTERVAL`; see the [smoke test](OPERATIONS.md#smoke-test-checklist))
 - **Frame modal opens on click**
 - **Countdown timer is visible and accurate**
 - **Status syncs with backend** (test by stopping backend)
@@ -247,7 +247,7 @@ Closes #123
 fix(backend): Fix memory leak in frame capture
 
 Fixed issue where old frames weren't being deleted properly.
-Now keeps only last 20 frames as documented.
+Now keeps only the last `MAX_ANALYZED_FRAMES` frames as documented.
 
 Fixes #456
 ```
@@ -292,7 +292,6 @@ Violations may result in:
 ## Recognition
 
 Contributors will be:
-- Listed in CONTRIBUTORS.md
 - Mentioned in release notes
 - Credited in project documentation
 
@@ -300,8 +299,8 @@ Contributors will be:
 
 - [Main README](README.md)
 - [Architecture Documentation](ARCHITECTURE.md)
-- [Testing Guide](TESTING.md)
-- [Quick Start Guide](QUICKSTART.md)
+- [Deployment](DEPLOYMENT.md)
+- [Operations and smoke test](OPERATIONS.md#smoke-test-checklist)
 
 ## License
 

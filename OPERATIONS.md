@@ -1,584 +1,121 @@
-# Operations Guide — Day-to-Day Management
+# Operations
 
-> **Who is this for?** Anyone who needs to manage, troubleshoot, or restart the Lobby Live Stream app on the Azure Stack Edge VM. No Linux experience required — just follow the steps exactly as written.
+Day-to-day management of a running deployment. Examples assume the Azure Stack Edge VM set up in [DEPLOYMENT.md](DEPLOYMENT.md) (systemd user services `vllm`, `lobby-backend`, `lobby-frontend`). For a local development run, replace `systemctl`/`journalctl` with the terminals running `npm start` and `npm run dev`.
 
----
+Placeholders: `<vm-user>`, `<vm-ip>`. Connect with `ssh <vm-user>@<vm-ip>` (or VS Code Remote-SSH) and `cd ~/Lobby-Live-Stream-Agent-v2`.
 
-## Table of Contents
-
-1. [Connect to the VM](#1-connect-to-the-vm)
-2. [Navigate to the Project Folder](#2-navigate-to-the-project-folder)
-3. [Check if Everything is Running](#3-check-if-everything-is-running)
-4. [View Console Logs (Backend, Frontend, vLLM)](#4-view-console-logs)
-5. [Stop Services](#5-stop-services)
-6. [Start Services](#6-start-services)
-7. [Restart Services](#7-restart-services)
-8. [Edit Configuration (.env file)](#8-edit-configuration)
-9. [Common Problems & Fixes](#9-common-problems--fixes)
-10. [Quick Reference Cheat Sheet](#10-quick-reference-cheat-sheet)
-
----
-
-## 1. Connect to the VM
-
-### Option A: VS Code Remote SSH (Recommended)
-
-1. Open **VS Code** on your Windows/Mac machine
-2. Press `Ctrl+Shift+P` (or `Cmd+Shift+P` on Mac)
-3. Type **"Remote-SSH: Connect to Host"** and select it
-4. Enter: `azureuser@10.11.70.24`
-5. Enter your password when prompted
-6. VS Code will open a remote session on the VM
-7. Open the **Terminal** in VS Code: press `` Ctrl+` `` (backtick key, next to the number 1)
-
-### Option B: Plain SSH from Terminal
-
-Open PowerShell, Windows Terminal, or any terminal and run:
+## Health checks
 
 ```bash
-ssh azureuser@10.11.70.24
+systemctl --user status vllm lobby-backend lobby-frontend --no-pager   # all active (running)
+
+curl -s http://localhost:8000/health                      # vLLM: HTTP 200, empty body
+curl -s http://localhost:3001/health                      # backend
+curl -s http://localhost:3001/api/stream/status           # stream + capture status
+curl -s http://localhost:3001/api/analysis/model-mode     # active mode (cloud/edge), slmUrl
+curl -s http://localhost:3001/api/analysis/scenarios/active
+nvidia-smi                                                # GPU memory in use by the vLLM python process
 ```
 
-Enter your password when prompted. You are now on the VM.
+In edge mode the backend calls vLLM's `/health` (5 s timeout) before every frame; if it fails, that frame is stored as an error observation instead of being analysed. There is no fallback to the cloud model: see [ARCHITECTURE.md](ARCHITECTURE.md#inference-modes).
 
----
+## Logs
 
-## 2. Navigate to the Project Folder
+```bash
+journalctl --user -u vllm -f
+journalctl --user -u lobby-backend -f
+journalctl --user -u lobby-frontend -f
+journalctl --user -u lobby-backend --since "1 hour ago" --no-pager
+```
 
-Once you are connected (either via VS Code terminal or plain SSH), run:
+Useful backend log lines: FFmpeg start/exit and restart attempts (stream), capture failures (analysis), and inference errors with the HTTP status from vLLM or Azure OpenAI. Browser-side problems (HLS errors, API calls) show in the browser developer console.
+
+## Start, stop and restart
+
+Order matters: vLLM first on start, last on stop.
+
+```bash
+systemctl --user start vllm            # wait ~1-2 minutes for "Uvicorn running"
+systemctl --user start lobby-backend lobby-frontend
+
+systemctl --user stop lobby-frontend lobby-backend
+systemctl --user stop vllm
+
+systemctl --user restart lobby-backend     # after editing .env
+```
+
+Backend variables are read once at startup; restart `lobby-backend` after any `.env` change. `VITE_*` values are read by Vite, so restart `lobby-frontend` after changing them. Restarting the backend stops the RTSP stream; start it again from the dashboard. In-memory observations are lost on restart (JPEGs not referenced afterwards are deleted at startup); the active scenario is restored from `backend/.active-scenario.json`.
+
+## Stream recovery
+
+- The HLS FFmpeg process restarts automatically up to 10 times, 5 s apart, if it exits unexpectedly. After that the stream stays stopped.
+- Still capture stops after 5 consecutive failures.
+- To recover manually: click **Stop** then **Start** in the dashboard (or `POST /api/stream/stop` then `POST /api/stream/start` with `{"rtspUrl": "<rtsp-url>"}`). Restarting `lobby-backend` also resets all counters.
+- The browser player retries network and media errors on its own; if video stays frozen, reload the page.
+
+If the camera is not available, any reachable RTSP source works for testing the pipeline (a second camera, or a looping file served by an RTSP server such as MediaMTX). Verify a URL first with `ffprobe -rtsp_transport tcp "<rtsp-url>"`.
+
+## Troubleshooting
+
+| Symptom | Likely cause and fix |
+|---|---|
+| Dashboard loads but API calls fail | `VITE_API_BASE_URL` points to `localhost` and you are browsing from another machine. Set it to `http://<vm-ip>:3001`, restart `lobby-frontend`. |
+| Page does not load at all | `lobby-frontend` not running, or port 5173/3001 blocked. Check `systemctl --user status` and firewall/NSG rules. |
+| Video never starts | Backend log shows FFmpeg exit: wrong RTSP URL/credentials, camera unreachable from the VM, or `ffmpeg` missing from `PATH`. |
+| No observations appear | Stream not started (capture runs with the stream), or inference failing: check the backend log and `/api/analysis/model-mode`. First analysis arrives after one capture interval. |
+| Observations say the model is unavailable | vLLM down or still loading: `systemctl --user status vllm`, `curl localhost:8000/health`. Start vLLM; the next capture recovers. |
+| Observations say Azure OpenAI is not configured | Cloud mode without `AZURE_OPENAI_ENDPOINT`. Set it (and credentials), or switch to edge. |
+| vLLM fails with CUDA out of memory | Another process holds the GPU (`nvidia-smi`), or settings too high. Lower `--gpu-memory-utilization` to 0.85 and/or `--max-model-len` to 2048 in the unit file, then `systemctl --user daemon-reload && systemctl --user restart vllm`. |
+| vLLM runs but model names do not match | `VLLM_MODEL` must equal the name vLLM serves (`curl localhost:8000/v1/models`). The code default is Phi-4, not Qwen. |
+| Services gone after reboot or logout | Linger not enabled: `sudo loginctl enable-linger <vm-user>`, and confirm `systemctl --user is-enabled` shows `enabled`. |
+| Wrong scenario after restart | The persisted selection in `backend/.active-scenario.json` wins over `PROMPT_PROFILE`. Switch in the dashboard, or delete the file and restart. |
+| Agent page cannot answer | `/agent` always uses vLLM at `SLM_URL`, even in cloud mode. Check vLLM health. |
+| Disk full on the VM root | Model cache must live under `/storage/huggingface`, not `~/.cache`. See [DEPLOYMENT.md](DEPLOYMENT.md#4-download-the-model-to-storage). |
+
+## Updating and rollback
+
+Update the code:
 
 ```bash
 cd ~/Lobby-Live-Stream-Agent-v2
-```
-
-> **What does `~` mean?** It's a shortcut for your home folder (`/home/azureuser`). So the full path is `/home/azureuser/Lobby-Live-Stream-Agent-v2`.
-
-You are now in the project root. All commands below assume you are in a terminal on the VM.
-
----
-
-## 3. Check if Everything is Running
-
-The app has **3 services** that must all be running:
-
-| # | Service | What it does | Port |
-|---|---------|-------------|------|
-| 1 | **vllm** | Runs the Qwen2.5-VL-7B AI model on the GPU | 8000 |
-| 2 | **lobby-backend** | Node.js server (video streaming + AI analysis) | 3001 |
-| 3 | **lobby-frontend** | React web UI | 5173 |
-
-### Check all three at once:
-
-```bash
-systemctl --user status vllm lobby-backend lobby-frontend
-```
-
-**What to look for:**
-- ✅ `active (running)` = service is working
-- ❌ `inactive (dead)` = service is stopped
-- ❌ `failed` = service crashed (check logs — see Section 4)
-
-Press `q` to exit the status view.
-
-### Check one service at a time:
-
-```bash
-systemctl --user status vllm
-systemctl --user status lobby-backend
-systemctl --user status lobby-frontend
-```
-
-Press `q` to exit each status view.
-
-### Quick health check (test if services are responding):
-
-```bash
-# Check vLLM (should return JSON)
-curl -s -m 10 http://localhost:8000/health
-
-# Check backend (should return HTML)
-curl -s -m 5 http://localhost:3001/ | head -1
-
-# Check frontend (should return HTML)
-curl -s -m 5 http://localhost:5173/ | head -1
-```
-
----
-
-## 4. View Console Logs
-
-This is how you see what the backend/frontend/vLLM are printing — useful for finding errors.
-
-### View backend logs (live, streaming):
-
-```bash
-journalctl --user -u lobby-backend -f
-```
-
-> **How to exit:** Press `Ctrl+C` to stop watching logs and return to the terminal.
-
-### View frontend logs (live, streaming):
-
-```bash
-journalctl --user -u lobby-frontend -f
-```
-
-> **How to exit:** Press `Ctrl+C`
-
-### View vLLM model server logs (live, streaming):
-
-```bash
-journalctl --user -u vllm -f
-```
-
-> **How to exit:** Press `Ctrl+C`
-
-### View last N lines of logs (not live — just a snapshot):
-
-```bash
-# Last 50 lines of backend logs
-journalctl --user -u lobby-backend -n 50 --no-pager
-
-# Last 100 lines of vLLM logs
-journalctl --user -u vllm -n 100 --no-pager
-
-# Last 200 lines of frontend logs
-journalctl --user -u lobby-frontend -n 200 --no-pager
-```
-
-> **Tip:** `--no-pager` prints the output directly to the terminal (no scrolling view). Without it, you'll enter a scrollable view — press `q` to exit that.
-
-### View logs from a specific time period:
-
-```bash
-# Logs from the last 30 minutes
-journalctl --user -u lobby-backend --since "30 minutes ago" --no-pager
-
-# Logs from the last 2 hours
-journalctl --user -u vllm --since "2 hours ago" --no-pager
-
-# Logs from today only
-journalctl --user -u lobby-backend --since today --no-pager
-```
-
----
-
-## 5. Stop Services
-
-### Stop one service:
-
-```bash
-# Stop the backend
-systemctl --user stop lobby-backend
-
-# Stop the frontend
-systemctl --user stop lobby-frontend
-
-# Stop vLLM (the AI model server)
-systemctl --user stop vllm
-```
-
-### Stop all three:
-
-```bash
-systemctl --user stop lobby-frontend lobby-backend vllm
-```
-
-> **Order matters when stopping:** Stop frontend first, then backend, then vLLM. This is the cleanest order but not strictly required.
-
-### Verify they stopped:
-
-```bash
-systemctl --user status vllm lobby-backend lobby-frontend
-```
-
-All should show `inactive (dead)`.
-
----
-
-## 6. Start Services
-
-### Start vLLM first (it takes ~30 seconds to load the model):
-
-```bash
-systemctl --user start vllm
-```
-
-Wait for it to load the model:
-
-```bash
-# Watch the logs until you see "Uvicorn running on http://0.0.0.0:8000"
-journalctl --user -u vllm -f
-```
-
-Once you see that message, press `Ctrl+C` to exit the log view, then start the others:
-
-```bash
-systemctl --user start lobby-backend
-systemctl --user start lobby-frontend
-```
-
-### Or start all three at once:
-
-```bash
-systemctl --user start vllm lobby-backend lobby-frontend
-```
-
-> **Note:** If you start all at once, the backend may show errors for the first ~30 seconds while vLLM is still loading. This is normal — it will recover automatically.
-
-### Verify they started:
-
-```bash
-systemctl --user status vllm lobby-backend lobby-frontend
-```
-
-All should show `active (running)`. Press `q` to exit.
-
----
-
-## 7. Restart Services
-
-Restarting = stop + start in one command. Use this when a service is misbehaving.
-
-### Restart one service:
-
-```bash
-# Restart just the backend (most common)
-systemctl --user restart lobby-backend
-
-# Restart just the frontend
-systemctl --user restart lobby-frontend
-
-# Restart vLLM (takes ~30 seconds to reload model)
-systemctl --user restart vllm
-```
-
-### Restart all three:
-
-```bash
-systemctl --user restart vllm lobby-backend lobby-frontend
-```
-
-### After restarting vLLM, wait for model to load:
-
-```bash
-# Wait 30 seconds, then check health
-sleep 30
-curl -s -m 10 http://localhost:8000/health
-```
-
-If it returns JSON, vLLM is ready. If it times out, wait another 15 seconds and try again.
-
----
-
-## 8. Edit Configuration
-
-The app's settings are in a single `.env` file at the project root.
-
-### View the current settings:
-
-```bash
-cat ~/Lobby-Live-Stream-Agent-v2/.env
-```
-
-### Edit the settings:
-
-```bash
-nano ~/Lobby-Live-Stream-Agent-v2/.env
-```
-
-> **How to use nano (text editor):**
-> - Use **arrow keys** to move the cursor
-> - Type to edit text normally
-> - **Save:** Press `Ctrl+O`, then press `Enter`
-> - **Exit:** Press `Ctrl+X`
-> - **Cancel edits:** Press `Ctrl+X`, then press `N` (No, don't save)
-
-### Key settings you might change:
-
-| Setting | What it does | Example value |
-|---------|-------------|---------------|
-| `MODEL_MODE` | `edge` (local GPU) or `cloud` (Azure) | `edge` |
-| `PROMPT_PROFILE` | Which scenario to use | `hub-lobby-default` or `ai-first-bank` |
-| `VLLM_MODEL` | Model name for edge mode | `Qwen/Qwen2.5-VL-7B-Instruct-AWQ` |
-| `FRAME_CAPTURE_INTERVAL` | Milliseconds between captures | `60000` (= 60 seconds) |
-| `VITE_API_BASE_URL` | Backend URL for the UI | `http://10.11.70.24:3001` |
-
-### After editing `.env`, restart the affected services:
-
-```bash
-# If you changed backend settings (MODEL_MODE, PROMPT_PROFILE, etc.):
-systemctl --user restart lobby-backend
-
-# If you changed frontend settings (VITE_API_BASE_URL, etc.):
-systemctl --user restart lobby-frontend
-
-# If you changed both:
+git pull
+(cd backend && npm install) && (cd frontend && npm install)
 systemctl --user restart lobby-backend lobby-frontend
 ```
 
-> **⚠️ IMPORTANT:** Never set `VITE_API_BASE_URL=http://localhost:3001` — the browser on your laptop will try to reach `localhost` on your laptop, not the VM. Always use the VM IP: `http://10.11.70.24:3001`
-
----
-
-## 9. Common Problems & Fixes
-
-### Problem: "Scene analysis in progress" but no results appear
-
-**Cause:** vLLM is stuck or crashed.
-
-**Fix:**
-```bash
-# Step 1: Restart vLLM
-systemctl --user restart vllm
-
-# Step 2: Wait for model to load
-sleep 30
-
-# Step 3: Check it's healthy
-curl -s -m 10 http://localhost:8000/health
-
-# Step 4: Restart backend to clear any stuck state
-systemctl --user restart lobby-backend
-```
-
-Then refresh the browser and click "Start Stream" again.
-
----
-
-### Problem: Web page doesn't load at all
-
-**Cause:** Frontend or backend service is down.
-
-**Fix:**
-```bash
-# Check what's running
-systemctl --user status vllm lobby-backend lobby-frontend
-
-# Restart whatever is not "active (running)"
-systemctl --user restart lobby-frontend lobby-backend
-
-# Verify
-systemctl --user status lobby-frontend lobby-backend
-```
-
----
-
-### Problem: Video stream not playing / freezing
-
-**Cause:** Backend or FFmpeg issue.
-
-**Fix:**
-```bash
-# Check backend logs for FFmpeg errors
-journalctl --user -u lobby-backend -n 50 --no-pager
-
-# Restart backend
-systemctl --user restart lobby-backend
-```
-
-Then refresh the browser and click "Start Stream" again.
-
----
-
-### Problem: App breaks when VS Code is closed
-
-**Cause:** `VITE_API_BASE_URL` is set to `localhost` instead of the VM IP.
-
-**Fix:**
-```bash
-# Edit the .env file
-nano ~/Lobby-Live-Stream-Agent-v2/.env
-
-# Find this line and change it:
-#   WRONG:   VITE_API_BASE_URL=http://localhost:3001
-#   CORRECT: VITE_API_BASE_URL=http://10.11.70.24:3001
-
-# Save (Ctrl+O, Enter) and exit (Ctrl+X)
-
-# Restart frontend
-systemctl --user restart lobby-frontend
-```
-
----
-
-### Problem: Everything was working but stopped after VM reboot
-
-**Cause:** Services should auto-start, but may need a moment.
-
-**Fix:**
-```bash
-# Check if services are running
-systemctl --user status vllm lobby-backend lobby-frontend
-
-# If any are not running, start them
-systemctl --user start vllm lobby-backend lobby-frontend
-
-# Wait 30 seconds for vLLM to load, then verify
-sleep 30
-curl -s -m 10 http://localhost:8000/health
-```
-
----
-
-### Problem: GPU out of memory or vLLM won't start
-
-**Cause:** Something else is using the GPU, or a previous vLLM process is stuck.
-
-**Fix:**
-```bash
-# Check GPU usage
-nvidia-smi
-
-# If vLLM is using all memory, stop it first
-systemctl --user stop vllm
-
-# Wait a few seconds for GPU memory to free
-sleep 5
-
-# Check GPU again (should show 0 MB used)
-nvidia-smi
-
-# Start vLLM again
-systemctl --user start vllm
-
-# Watch logs to confirm it loads successfully
-journalctl --user -u vllm -f
-# Press Ctrl+C once you see "Uvicorn running on http://0.0.0.0:8000"
-```
-
----
-
-### Problem: Need to update the code (git pull)
+Roll back the code to a known commit, then reinstall and restart as above:
 
 ```bash
-# Step 1: Stop the app services (not vLLM — it doesn't change with code updates)
-systemctl --user stop lobby-frontend lobby-backend
-
-# Step 2: Pull latest code
-cd ~/Lobby-Live-Stream-Agent-v2
-git pull
-
-# Step 3: If package.json changed, reinstall dependencies
-cd backend && npm install && cd ..
-cd frontend && npm install && cd ..
-
-# Step 4: Start services again
-systemctl --user start lobby-backend lobby-frontend
-
-# Step 5: Verify
-systemctl --user status lobby-backend lobby-frontend
+git log --oneline -10
+git checkout <commit-or-tag>
 ```
 
----
+Roll back the model: edit the `vllm` unit (`~/.config/systemd/user/vllm.service`) to the previous model and settings, set `VLLM_MODEL` in `.env` to the same name, then `systemctl --user daemon-reload && systemctl --user restart vllm lobby-backend`. Keep a copy of the previous unit file before changing it. The previous model (`microsoft/Phi-4-multimodal-instruct`) is the code default for `VLLM_MODEL`; its weights must already be in `/storage/huggingface` or be downloaded again.
 
-## 10. Quick Reference Cheat Sheet
+To fall back to cloud inference, change `MODEL_MODE=cloud` (or switch in the dashboard) and make sure Azure OpenAI is configured. This is a manual decision, not automatic.
 
-Copy-paste these commands as needed. All commands assume you are SSH'd into the VM.
+## Smoke test checklist
 
-```bash
-# ──────────────────────────────────────────────
-# CONNECT
-# ──────────────────────────────────────────────
-ssh azureuser@10.11.70.24
-cd ~/Lobby-Live-Stream-Agent-v2
+Run after a deployment, update or restart.
 
-# ──────────────────────────────────────────────
-# CHECK STATUS
-# ──────────────────────────────────────────────
-systemctl --user status vllm lobby-backend lobby-frontend
+1. **Services**: `systemctl --user status vllm lobby-backend lobby-frontend` shows all running.
+2. **Inference health** (edge): `curl localhost:8000/health` returns 200 and `curl localhost:8000/v1/models` lists the model in `VLLM_MODEL`. `curl localhost:3001/api/analysis/model-mode` reports the expected mode.
+3. **Playback**: open `http://<vm-ip>:5173`, enter the RTSP URL, click Start. Video appears within a few seconds and keeps advancing.
+4. **Frame analysis**: wait one `FRAME_CAPTURE_INTERVAL` (default 60 s). A new observation with an image and a scene description appears; the countdown resets. `curl localhost:3001/api/analysis/frames` returns it.
+5. **Scenario switching**: switch to another scenario in the dashboard. The panels change, `GET /api/analysis/scenarios/active` reports the new id, and the next observation follows the new prompt. Switch back if needed.
+6. **Agent** (edge): open `/agent` and ask a question about recent observations; an answer is returned.
+7. **Persistence** (after installing): reboot the VM and confirm all three services return without logging in.
 
-# ──────────────────────────────────────────────
-# VIEW LOGS (press Ctrl+C to exit)
-# ──────────────────────────────────────────────
-journalctl --user -u lobby-backend -f          # Backend (live)
-journalctl --user -u lobby-frontend -f         # Frontend (live)
-journalctl --user -u vllm -f                   # vLLM (live)
-journalctl --user -u lobby-backend -n 50 --no-pager   # Last 50 lines
+If any step fails, use the troubleshooting table above.
 
-# ──────────────────────────────────────────────
-# STOP
-# ──────────────────────────────────────────────
-systemctl --user stop lobby-frontend           # Stop frontend only
-systemctl --user stop lobby-backend            # Stop backend only
-systemctl --user stop vllm                     # Stop vLLM only
-systemctl --user stop lobby-frontend lobby-backend vllm   # Stop all
+## Key paths
 
-# ──────────────────────────────────────────────
-# START
-# ──────────────────────────────────────────────
-systemctl --user start vllm                    # Start vLLM (wait ~30s)
-systemctl --user start lobby-backend           # Start backend
-systemctl --user start lobby-frontend          # Start frontend
-systemctl --user start vllm lobby-backend lobby-frontend  # Start all
-
-# ──────────────────────────────────────────────
-# RESTART
-# ──────────────────────────────────────────────
-systemctl --user restart lobby-backend         # Restart backend
-systemctl --user restart lobby-frontend        # Restart frontend
-systemctl --user restart vllm                  # Restart vLLM (~30s reload)
-systemctl --user restart vllm lobby-backend lobby-frontend  # Restart all
-
-# ──────────────────────────────────────────────
-# HEALTH CHECKS
-# ──────────────────────────────────────────────
-curl -s -m 10 http://localhost:8000/health     # vLLM
-curl -s -m 5 http://localhost:3001/ | head -1  # Backend
-curl -s -m 5 http://localhost:5173/ | head -1  # Frontend
-nvidia-smi                                      # GPU status
-
-# ──────────────────────────────────────────────
-# EDIT CONFIG
-# ──────────────────────────────────────────────
-nano ~/Lobby-Live-Stream-Agent-v2/.env         # Edit settings
-cat ~/Lobby-Live-Stream-Agent-v2/.env          # View settings
-
-# ──────────────────────────────────────────────
-# UPDATE CODE
-# ──────────────────────────────────────────────
-systemctl --user stop lobby-frontend lobby-backend
-cd ~/Lobby-Live-Stream-Agent-v2 && git pull
-cd backend && npm install && cd ../frontend && npm install && cd ..
-systemctl --user start lobby-backend lobby-frontend
-```
-
----
-
-## Service File Locations
-
-If you ever need to edit the systemd service definitions themselves (rare):
-
-```
-~/.config/systemd/user/vllm.service
-~/.config/systemd/user/lobby-backend.service
-~/.config/systemd/user/lobby-frontend.service
-```
-
-After editing a service file, reload and restart:
-
-```bash
-systemctl --user daemon-reload
-systemctl --user restart <service-name>
-```
-
----
-
-## Key Paths on the VM
-
-| What | Path |
-|------|------|
-| Project root | `~/Lobby-Live-Stream-Agent-v2/` |
-| Backend code | `~/Lobby-Live-Stream-Agent-v2/backend/` |
-| Frontend code | `~/Lobby-Live-Stream-Agent-v2/frontend/` |
-| Environment config | `~/Lobby-Live-Stream-Agent-v2/.env` |
-| System prompts | `~/Lobby-Live-Stream-Agent-v2/backend/system-prompts/` |
-| Captured frames | `~/Lobby-Live-Stream-Agent-v2/backend/captures/` |
-| HLS video segments | `~/Lobby-Live-Stream-Agent-v2/backend/stream/` |
-| vLLM virtual environment | `/storage/vllm-env/` |
-| AI model files | `/storage/huggingface/` |
-| systemd service files | `~/.config/systemd/user/` |
-
----
-
-> **Remember:** All three services auto-start on boot and auto-restart on crash. Most of the time you don't need to do anything — just open `http://10.11.70.24:5173` in your browser. This guide is for when things go wrong or when you need to make changes.
+| Item | Location |
+|---|---|
+| Repository | `~/Lobby-Live-Stream-Agent-v2` |
+| Configuration | `~/Lobby-Live-Stream-Agent-v2/.env` |
+| systemd units | `~/.config/systemd/user/{vllm,lobby-backend,lobby-frontend}.service` |
+| vLLM Python env | `/storage/vllm-env` |
+| Model cache | `/storage/huggingface` |
+| Active scenario | `backend/.active-scenario.json` |
+| Captured JPEGs | `backend/captures/` |

@@ -4,30 +4,97 @@ How the system works, why it is built this way, and what it supports. For setup 
 
 ## Data flow
 
-```
-                        RTSP camera
-                       /           \
-        (1) FFmpeg: RTSP -> HLS     (2) FFmpeg: one JPEG every FRAME_CAPTURE_INTERVAL
-        streamService.js            frameAnalysisService.js
-              |                              |
-   backend/stream/*.m3u8, *.ts        backend/captures/frame_<ts>.jpg
-              |                              |
-     GET /stream/stream.m3u8           base64 image + scenario prompt
-              |                              |
-              |               +--------------+---------------+
-              |               | MODEL_MODE=cloud             | MODEL_MODE=edge
-              |               | Azure OpenAI chat completion | vLLM /v1/chat/completions
-              |               +--------------+---------------+
-              |                              |
-              |                  parsed result + alert fields
-              |                  in-memory list (MAX_ANALYZED_FRAMES)
-              |                              |
-              +----------- React/Vite dashboard (hls.js) <--- GET /api/analysis/frames (polled)
-                                             GET /api/stream/status (polled; carries nextCaptureAt)
-                                             /agent --> POST /api/agent/chat --> vLLM
+The diagram shows the documented Azure Stack Edge deployment (`MODEL_MODE=edge`). In cloud mode the frame analysis caller targets Azure OpenAI instead of vLLM (see [Inference modes](#inference-modes)); the agent chat route always targets vLLM.
+
+```mermaid
+flowchart LR
+    CAM["IP camera"]
+    HF["Hugging Face<br>Qwen2.5-VL-7B-Instruct-AWQ"]
+
+    subgraph CLIENT["Client browser"]
+        DASH["React dashboard<br>HLS player, countdown, frame history"]
+        CHAT["React /agent<br>Analytics chat"]
+    end
+
+    subgraph EDGE["Azure Stack Edge appliance"]
+        subgraph VM["Ubuntu VM with NVIDIA Tesla T4"]
+            WEB["lobby-frontend<br>Vite serves the React app"]
+
+            subgraph API["lobby-backend: Node.js / Express"]
+                HTTP["Stream, status, scenario, and frame APIs"]
+                STREAM["StreamService"]
+                FRAME["FrameAnalysisService<br>Schedule, prompt assembly, response parsing"]
+                AGENT["Agent chat route<br>Compute stats from retained observations"]
+                HISTORY["In-memory history<br>Latest N analysis records; default 10"]
+            end
+
+            LIVE["Long-running FFmpeg child process<br>RTSP to HLS"]
+            SNAP["Short-lived FFmpeg child process<br>One JPEG per capture"]
+            HLS["Local HLS playlist and rolling segments"]
+            JPEG["Local captures directory"]
+            PROFILE["Scenario JSON, prompts, optional example<br>Persisted active profile ID"]
+            MODEL["vLLM Python service on GPU<br>OpenAI-compatible API"]
+            CACHE["Model weights cached on /storage"]
+        end
+    end
+
+    WEB -->|"Serves app"| DASH
+    WEB -->|"Serves app"| CHAT
+    DASH <-->|"Start/stop, scenario selection, status and frame polling"| HTTP
+
+    CAM -->|"RTSP over TCP: live playback input"| LIVE
+    CAM -->|"RTSP over TCP: separate capture connection"| SNAP
+    HTTP -->|"Start/stop playback"| STREAM
+    HTTP -->|"Start/stop capture"| FRAME
+    STREAM -->|"Spawns and restarts"| LIVE
+    LIVE --> HLS
+    HLS -->|"Express serves /stream"| DASH
+
+    PROFILE <-->|"Load config and persist selection"| FRAME
+    FRAME -->|"Capture now, then every 60 s by default"| SNAP
+    SNAP --> JPEG
+    JPEG -->|"Current image"| FRAME
+    FRAME <-->|"Image + scenario instructions / model response"| MODEL
+    FRAME -->|"Parsed observations"| HISTORY
+    HISTORY --> HTTP
+    JPEG -->|"Express serves /captures"| DASH
+
+    CHAT <-->|"POST /api/agent/chat"| AGENT
+    HISTORY -->|"Recent observations, not images"| AGENT
+    AGENT <-->|"Text-only prompt / answer"| MODEL
+
+    HF -->|"Download AWQ weights during setup"| CACHE
+    CACHE -->|"Load model at startup"| MODEL
 ```
 
-All of this runs in one Node.js process (Express) plus child FFmpeg processes. The vLLM server is a separate process, usually on the same host.
+Three services run on the VM as systemd user services: `lobby-frontend` (Vite), `lobby-backend` (Node.js/Express, which spawns the FFmpeg children) and `vllm` (Python). The model is not bundled with the Node app; vLLM loads weights cached under `/storage`. In-memory data (history) is lost on a backend restart; disk data (HLS files, JPEGs, `.active-scenario.json`) is on the VM filesystem.
+
+### Tracing the three paths
+
+**Live playback (owner: `StreamService`).**
+`POST /api/stream/start` makes `StreamService` spawn one long-running FFmpeg child that reads the camera over RTSP/TCP and writes an HLS playlist and rolling segments to `backend/stream/`. Express serves them under `/stream`; the browser plays them with hls.js (or native HLS). `StreamService` restarts the child if it fails (see [Failure behaviour](#failure-behaviour)). Inference is kept off this path so a slow model never stalls video.
+
+**One sampled frame (owner: `FrameAnalysisService`).**
+The same start request calls `startCapture`, which captures immediately and then every `FRAME_CAPTURE_INTERVAL` (60 s default). Each cycle:
+1. If the stream is not running, the cycle is skipped and resumes when the stream is back. The backend sets `nextCaptureAt`; the browser only displays it (status polled every 5 s, countdown updated locally every second) and never triggers capture. Stream restarts are retried every 5 s up to 10 times, after which auto-restart stops and capture stays idle until the stream is started again; 5 consecutive failed stills also stop the capture timer.
+2. A separate short-lived FFmpeg process opens its own RTSP connection and writes one JPEG to `backend/captures/`. It does not sample the browser player or the HLS output.
+3. In edge mode, `GET {SLM_URL}/health` is checked first. If vLLM is unavailable the frame is skipped and retried next cycle; nothing is stored.
+4. The JPEG (base64) and the active scenario's edge prompt (falling back to the standard prompt), plus the first configured image/response example if one exists, are sent to `POST {SLM_URL}/v1/chat/completions` with `VLLM_MODEL`.
+5. The backend parses and normalizes the reply (JSON, partial JSON or text), applies the scenario alert rules from `scenario-config.json`, and prepends the observation to the in-memory list.
+6. While streaming, the dashboard polls `/api/analysis/frames` every 10 s and renders metrics, captions and alerts, loading images from `/captures`.
+
+Retention: the in-memory records are capped at `MAX_ANALYZED_FRAMES` (default 10). When exceeded, the oldest record is evicted and its JPEG deleted, so disk normally holds about the same number of stills. After a backend restart the records are gone and leftover `frame_*.jpg` files are deleted at startup; the active scenario ID survives. Switching scenario clears the in-memory records (JPEGs stay on disk until the next restart).
+
+**One chat request (owner: the agent route).**
+`/agent` sends `POST /api/agent/chat`. The route computes queue statistics, token observations and alert totals in Node from the retained records, then sends a text-only prompt to the same vLLM endpoint and model (`SLM_URL`, `VLLM_MODEL`). It never sends images, does not reanalyze frames and does not query a historical database, so time windows are limited to the retained observations. Its prompt is written for the Government Service Center scenario.
+
+### Scenario selection
+
+At startup the backend uses the saved profile (`backend/.active-scenario.json`), else `PROMPT_PROFILE`, else `hub-lobby-default`. Switching reloads the scenario JSON, prompts and example, clears history and persists the new ID. See [Scenario profiles](#scenario-profiles).
+
+### Edge model prerequisites
+
+Before deploying the app the VM needs a visible Tesla T4, a compatible NVIDIA driver and CUDA toolkit, a Python/Conda environment with vLLM on `/storage`, and the downloaded Hugging Face weights. The commands, GPU memory and context settings (`--gpu-memory-utilization`, `--max-model-len`), systemd user services with linger, `MODEL_MODE`, `SLM_URL`, `VLLM_MODEL`, and health and image-inference checks are in [DEPLOYMENT.md](DEPLOYMENT.md), the single authoritative procedure; they are not repeated here. See also [Inference modes](#inference-modes) for why a 4-bit AWQ Qwen2.5-VL is used on the T4.
 
 ## Components
 
